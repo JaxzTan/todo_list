@@ -58,19 +58,6 @@ make tunnel       # starts the stack (if not up) + watch mode + ngrok in the for
 make stop-tunnel  # stop the tunnel and watch mode (containers keep running)
 ```
 
-## Configuration (env vars)
-
-| Variable | Purpose |
-|---|---|
-| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | Local Postgres connection, used by `docker-compose.yml` |
-| `DATABASE_URL` | Full connection string used by Prisma migrations (superuser role) |
-| `APP_DATABASE_URL` | Connection string for the RLS-scoped `exec_board_app` role the app itself uses at runtime |
-| `APP_DB_PASSWORD` | Password synced onto the `exec_board_app` role by `scripts/setup-db-role.sh` |
-| `PAT_JAXZ`, `PAT_JAYCI` | Per-user bearer tokens (see `scripts/issue-token.mts`) — never committed, never written into board files |
-| `NGROK` | ngrok auth/config used by `scripts/start-tunnel.sh` to expose `localhost:3000` |
-
-`.env` is gitignored; there is no committed `.env.example` yet — see the variable names above or `docker-compose.yml` / `prisma.config.ts` for how each is consumed.
-
 ## Common commands
 
 | Command | Purpose |
