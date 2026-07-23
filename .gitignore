@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+next-env.d.ts
+
+# env
+.env
+.env*.local
+
+# testing
+coverage/
+playwright-report/
+test-results/
+
+# misc
+.DS_Store
+*.pem
+
+# prisma
+prisma/*.db
+
+# board-codec local fallback files (skill client offline mode)
+.exec-board/
+
+# db backups
+backups/*.dump
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+.claude/
+docs
+Three Layer Day Board Design/

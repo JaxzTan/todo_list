@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.env
+.exec-board
+backups
+test-results
+playwright-report
+Three Layer Day Board Design
+*.tsbuildinfo
+.DS_Store

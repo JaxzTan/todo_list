@@ -1,0 +1,23 @@
+# TR-15 / TRD §7 layer 1 (tunnel edge). Templated because the real
+# credentials live only in .env — scripts/start-tunnel.sh substitutes them
+# into a gitignored copy before handing this to ngrok. Verified empirically
+# (see docs/list.md): unauthenticated and wrong-credential requests get a
+# 401 from ngrok itself before ever reaching the app; correct credentials
+# pass through untouched (no terminating action after basic-auth needed).
+#
+# Scoped to exclude /api/* — HTTP Basic Auth and this app's own PAT auth
+# (TR-14) both use the standard `Authorization` header, so a browser's
+# cached Basic credential and a fetch() call's explicit `Bearer` header
+# would collide on the same requests. The PAT is already a stronger,
+# per-user, argon2-hashed secret, so /api/* relying on it alone (instead of
+# also being gated here) isn't a weaker posture — see docs/list.md.
+on_http_request:
+  - expressions:
+      - "!req.url.path.startsWith('/api/')"
+    actions:
+      - type: "basic-auth"
+        config:
+          realm: "exec-board"
+          credentials:
+            - "__USER1__:__PASSWORD1__"
+            - "__USER2__:__PASSWORD2__"

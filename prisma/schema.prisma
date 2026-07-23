@@ -1,0 +1,199 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum BoardType {
+  PROJECT
+  DAY
+}
+
+enum NodeKind {
+  GROUP
+  STEP
+}
+
+enum StepStatus {
+  todo
+  doing
+  stuck
+  done
+  skipped
+}
+
+enum Prio {
+  high
+  med
+  low
+}
+
+// Matrix view (Eisenhower quadrants) — added per the updated design, not in
+// the original TRD. Placement is user-set ("click to move to next
+// quadrant"), so it has to be stored rather than derived from prio/due.
+enum Quadrant {
+  do_now
+  schedule
+  delegate
+  drop
+}
+
+enum EventSource {
+  INFERRED
+  EXPLICIT
+  IMPORT
+  SYSTEM
+}
+
+enum EventType {
+  NODE_ADDED
+  NODE_CUT
+  NODE_REWORDED
+  STATUS_CHANGED
+  ATTR_SET
+  NOTE_ADDED
+  BLOCKER_OPENED
+  BLOCKER_RESOLVED
+  SESSION_OPENED
+  SESSION_CLOSED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  handle    String   @unique
+  tokenHash String   @unique
+  createdAt DateTime @default(now())
+
+  boards Board[]
+}
+
+model Board {
+  id            String    @id @default(cuid())
+  ownerId       String
+  slug          String
+  type          BoardType
+  title         String
+  goal          String
+  dateKey       String?
+  deadline      DateTime?
+  activeColumns String[]  @default([])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  owner    User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  nodes    Node[]
+  events   Event[]
+  sessions Session[]
+  imports  Import[]
+  reports  Report[]
+
+  @@unique([ownerId, slug])
+  @@index([ownerId, updatedAt])
+}
+
+model Node {
+  id            String     @id @default(cuid())
+  boardId       String
+  parentId      String?
+  kind          NodeKind
+  title         String
+  doneCondition String?
+  position      Int
+  status        StepStatus @default(todo)
+  statusAt      DateTime   @default(now())
+  due           DateTime?
+  prio          Prio?
+  owner         String?
+  quadrant      Quadrant?
+  archivedAt    DateTime?
+  createdAt     DateTime   @default(now())
+
+  board    Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  parent   Node?     @relation("tree", fields: [parentId], references: [id])
+  children Node[]    @relation("tree")
+  blockers Blocker[]
+  events   Event[]
+
+  @@index([boardId, parentId, position])
+  @@index([boardId, status])
+}
+
+model Event {
+  id         String      @id @default(cuid())
+  boardId    String
+  sessionId  String?
+  nodeId     String?
+  type       EventType
+  payload    Json
+  source     EventSource @default(INFERRED)
+  ambiguous  Boolean     @default(false)
+  revertedBy String?     @unique
+  at         DateTime    @default(now())
+
+  board   Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  session Session? @relation(fields: [sessionId], references: [id])
+  node    Node?    @relation(fields: [nodeId], references: [id])
+
+  @@index([boardId, at])
+  @@index([boardId, type, at])
+  @@index([nodeId, at])
+}
+
+model Blocker {
+  id              String    @id @default(cuid())
+  boardId         String
+  nodeId          String
+  description     String
+  unblockPlan     String?
+  openedEventId   String    @unique
+  resolvedEventId String?   @unique
+  openedAt        DateTime  @default(now())
+  resolvedAt      DateTime?
+
+  node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@index([boardId, resolvedAt])
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  boardId   String
+  seq       Int
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  board  Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  events Event[]
+
+  @@unique([boardId, seq])
+}
+
+model Import {
+  id        String    @id @default(cuid())
+  boardId   String
+  sessionId String?
+  rawBody   String
+  unparsed  String?
+  warnings  Json      @default("[]")
+  bodyHash  String
+  appliedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@index([boardId, createdAt])
+}
+
+model Report {
+  id        String   @id @default(cuid())
+  boardId   String
+  sessionId String
+  body      String
+  createdAt DateTime @default(now())
+
+  board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@index([boardId, sessionId])
+}

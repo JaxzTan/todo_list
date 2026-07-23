@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "127.0.0.1:${DB_PORT}:5432"
+    volumes:
+      - exec-board-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      # Container-to-container networking uses the service name (db) and
+      # the container-internal port (5432) — not localhost:${DB_PORT},
+      # which is only how the *host* reaches Postgres.
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      APP_DATABASE_URL: postgresql://exec_board_app:${APP_DB_PASSWORD}@db:5432/${DB_NAME}
+    depends_on:
+      db:
+        condition: service_healthy
+    develop:
+      watch:
+        # sync: pushed straight into the running container; Next's own dev
+        # server (Turbopack) picks up the change and hot-reloads — no
+        # rebuild needed, which is what makes this fast.
+        - action: sync
+          path: ./app
+          target: /app/app
+        - action: sync
+          path: ./lib
+          target: /app/lib
+        - action: sync
+          path: ./packages/board-codec/src
+          target: /app/packages/board-codec/src
+        # next.config.ts isn't picked up by npm/prisma, but it does need to
+        # reach the container — Next's dev server watches it itself and
+        # restarts on change, a full image rebuild isn't necessary.
+        - action: sync
+          path: ./next.config.ts
+          target: /app/next.config.ts
+        # rebuild: anything that changes what `npm ci` or `prisma generate`
+        # produced — a sync can't fix that, the image has to be rebuilt.
+        - action: rebuild
+          path: package.json
+        - action: rebuild
+          path: package-lock.json
+        - action: rebuild
+          path: prisma/schema.prisma
+
+volumes:
+  exec-board-db:
