@@ -23,7 +23,7 @@ function resolveBaseUrl(): string {
   try {
     return readFileSync(path.join(LOCAL_DIR, "tunnel-url.txt"), "utf-8").trim();
   } catch {
-    return "http://localhost:3000";
+    return "http://localhost:3300";
   }
 }
 const BASE_URL = resolveBaseUrl();

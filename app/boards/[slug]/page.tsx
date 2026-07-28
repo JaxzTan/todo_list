@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AppShell } from "@/app/components/AppShell";
 import { BoardTree } from "@/app/components/BoardTree";
 import { MatrixView } from "@/app/components/MatrixView";
@@ -17,6 +18,7 @@ type Tab = "board" | "matrix";
 export default function BoardDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
   const { t } = useI18n();
+  const router = useRouter();
   const [detail, setDetail] = useState<BoardDetailResponse | null>(null);
   const [tab, setTab] = useState<Tab>("board");
   const [report, setReport] = useState<string | null>(null);
@@ -24,6 +26,11 @@ export default function BoardDetailPage({ params }: { params: Promise<{ slug: st
   const reload = useCallback(() => {
     api.get<BoardDetailResponse>(`/api/boards/${slug}`).then(setDetail);
   }, [slug]);
+
+  function onDeleteBoard() {
+    if (!window.confirm(t("deleteBoardConfirm"))) return;
+    api.del(`/api/boards/${slug}`).then(() => router.push("/boards"));
+  }
 
   useEffect(reload, [reload]);
 
@@ -63,6 +70,14 @@ export default function BoardDetailPage({ params }: { params: Promise<{ slug: st
                 className="underline"
               >
                 {t("downloadReport")}
+              </button>
+              <button
+                type="button"
+                onClick={onDeleteBoard}
+                className="underline"
+                style={{ color: "var(--danger)" }}
+              >
+                {t("deleteBoard")}
               </button>
             </div>
 

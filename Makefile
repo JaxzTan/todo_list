@@ -16,8 +16,9 @@ build:
 
 up:
 	@docker compose -f $(COMPOSE_FILE) up -d
-	@echo "web:  http://localhost:3000"
-	@echo "logs: make logs"
+	@echo "web:    http://localhost:3300"
+	@echo "studio: http://localhost:5555"
+	@echo "logs:   make logs"
 
 down:
 	@docker compose -f $(COMPOSE_FILE) down

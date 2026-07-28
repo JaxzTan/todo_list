@@ -88,7 +88,7 @@ jobs:
       - name: Start the app
         run: |
           npm run start &
-          for i in $(seq 1 30); do curl -sf http://localhost:3000/api/health && break; sleep 1; done
+          for i in $(seq 1 30); do curl -sf http://localhost:3300/api/health && break; sleep 1; done
       - run: npx playwright test
       - uses: actions/upload-artifact@v4
         if: failure()

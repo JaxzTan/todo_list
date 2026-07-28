@@ -15,6 +15,30 @@ function isUniqueConstraintOn(err: unknown, constraint: string): boolean {
   );
 }
 
+/**
+ * The ids of every still-active descendant of `rootId`, walking the tree
+ * breadth-first. Used when cutting a GROUP (a "phase") or any node with
+ * children: the tree builder hides steps whose parent is gone, so a cut has
+ * to take the whole subtree down with it rather than orphan them.
+ */
+async function activeDescendantIds(
+  tx: Prisma.TransactionClient,
+  boardId: string,
+  rootId: string,
+): Promise<string[]> {
+  const collected: string[] = [];
+  let frontier = [rootId];
+  while (frontier.length > 0) {
+    const children = await tx.node.findMany({
+      where: { boardId, parentId: { in: frontier }, archivedAt: null },
+      select: { id: true },
+    });
+    frontier = children.map((c) => c.id);
+    collected.push(...frontier);
+  }
+  return collected;
+}
+
 export async function addNode(userId: string, slug: string, input: AddNodeInput) {
   try {
     return await withTenant(userId, async (tx) => {
@@ -219,18 +243,27 @@ export async function patchNode(
 
       // Cut / restore (TR-10: cutting is a scope change; restoring isn't).
       if (input.archived !== undefined) {
-        const archivedAt = input.archived ? new Date() : null;
-        await tx.node.update({ where: { id: node.id }, data: { archivedAt } });
         if (input.archived) {
+          // Cutting cascades to the subtree so children aren't left orphaned
+          // (invisible in the tree but still counted). The cascaded ids are
+          // recorded on the event so a revert can restore exactly this cut —
+          // and not resurrect children that were already cut separately.
+          const cascadedIds = await activeDescendantIds(tx, board.id, node.id);
+          await tx.node.updateMany({
+            where: { id: { in: [node.id, ...cascadedIds] } },
+            data: { archivedAt: new Date() },
+          });
           await emitEvent(tx, {
             boardId: board.id,
             sessionId,
             nodeId: node.id,
             type: "NODE_CUT",
-            payload: { reason: input.reason },
+            payload: { reason: input.reason, cascadedIds },
             source,
             ambiguous,
           });
+        } else {
+          await tx.node.update({ where: { id: node.id }, data: { archivedAt: null } });
         }
       }
 

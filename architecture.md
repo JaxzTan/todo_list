@@ -56,7 +56,7 @@ Deployment is monolith-first, single-environment: Next.js as the full-stack fram
 | DB runtime | Docker Compose, named volume | Reproducible, disposable, no host Postgres install |
 | Auth | One personal access token (PAT) per user, bearer | Two users, no signup flow needed |
 | Isolation | Postgres row-level security (RLS), tenant set per transaction | Query-level `WHERE ownerId = ?` scoping will eventually be forgotten once |
-| Exposure | ngrok tunnel to `localhost:3000` | Zero-infra way to reach a local app from the skill sandbox |
+| Exposure | ngrok tunnel to `localhost:3300` | Zero-infra way to reach a local app from the skill sandbox |
 | Export | Markdown files written to disk on demand | Matches skill behaviour and the portability goal |
 
 ## Data model

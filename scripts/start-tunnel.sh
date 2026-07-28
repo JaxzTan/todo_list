@@ -27,7 +27,7 @@ set +a
 : "${USER2:?USER2 is not set in .env}"
 : "${PASSWORD2:?PASSWORD2 is not set in .env}"
 
-PORT="${1:-3000}"
+PORT="${1:-3300}"
 mkdir -p .exec-board
 
 POLICY_FILE=".exec-board/traffic-policy.generated.yml"

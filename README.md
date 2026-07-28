@@ -43,7 +43,7 @@ Exec Board tracks multi-step, multi-session work without a separate act of "upda
 ```
 npm run dev
 ```
-App runs at `http://localhost:3000`.
+App runs at `http://localhost:3300`.
 
 **Full stack via Docker Compose** (app + Postgres, with file-watch hot reload):
 ```

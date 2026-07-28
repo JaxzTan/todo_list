@@ -28,6 +28,7 @@ const DICT = {
     scopeChanges: "Scope changes",
     addStep: "Add step",
     addGroup: "Add phase",
+    title: "Title",
     reason: "Reason",
     reasonPlaceholder: "why? (required)",
     cancel: "Cancel",
@@ -54,6 +55,10 @@ const DICT = {
     downloadReport: "Download report",
     downloadMarkdown: "Download markdown",
     theme: "Theme",
+    deleteBoard: "Delete board",
+    deleteBoardConfirm: "Delete this board permanently? All its steps, history, and reports will be removed.",
+    deletePhase: "Delete phase",
+    deletePhasePrompt: "reason for deleting this phase (and its steps)?",
   },
   zh: {
     appName: "Exec Board",
@@ -78,6 +83,7 @@ const DICT = {
     scopeChanges: "范围变更",
     addStep: "添加步骤",
     addGroup: "添加阶段",
+    title: "标题",
     reason: "原因",
     reasonPlaceholder: "为什么？（必填）",
     cancel: "取消",
@@ -104,6 +110,10 @@ const DICT = {
     downloadReport: "下载报告",
     downloadMarkdown: "下载 Markdown",
     theme: "主题",
+    deleteBoard: "删除看板",
+    deleteBoardConfirm: "永久删除此看板？其所有步骤、历史记录和报告都将被移除。",
+    deletePhase: "删除阶段",
+    deletePhasePrompt: "删除此阶段（及其步骤）的原因？",
   },
 } as const satisfies Record<Locale, Record<string, string>>;
 

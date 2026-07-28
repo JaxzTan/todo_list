@@ -20,7 +20,7 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3300:3300"
     environment:
       NODE_ENV: development
       # Container-to-container networking uses the service name (db) and
@@ -59,6 +59,22 @@ services:
           path: package-lock.json
         - action: rebuild
           path: prisma/schema.prisma
+
+  studio:
+    build: .
+    restart: unless-stopped
+    command: ["npx", "prisma", "studio", "--port", "5555", "--browser", "none"]
+    ports:
+      - "127.0.0.1:5555:5555"
+    environment:
+      # Deliberately DATABASE_URL (the postgres superuser), not
+      # APP_DATABASE_URL — RLS (TR-15) is a no-op for superusers, so this is
+      # what makes Studio show every row instead of nothing (exec_board_app
+      # sees zero board-scoped rows unless app.current_user_id is set).
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   exec-board-db:

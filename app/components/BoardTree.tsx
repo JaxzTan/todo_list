@@ -2,52 +2,11 @@
 
 import { useState } from "react";
 import { buildClientTree } from "@/lib/client/tree";
-import { addNode, patchNode } from "@/lib/client/mutations";
+import { patchNode } from "@/lib/client/mutations";
 import { useI18n } from "@/lib/client/i18n";
 import { StatusPill } from "./StatusPill";
-import type { NodeRecord, TreeNode } from "@/lib/client/types";
-
-function AddRow({ placeholder, onAdd }: { placeholder: string; onAdd: (title: string) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState("");
-
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        onClick={() => setEditing(true)}
-        className="rounded-md px-2 py-1 text-left text-xs"
-        style={{ color: "var(--muted)" }}
-      >
-        + {placeholder}
-      </button>
-    );
-  }
-
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (value.trim()) onAdd(value.trim());
-        setValue("");
-        setEditing(false);
-      }}
-      className="flex gap-1.5"
-    >
-      <input
-        autoFocus
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={() => {
-          if (!value.trim()) setEditing(false);
-        }}
-        placeholder={placeholder}
-        className="rounded-md border px-2 py-1 text-xs"
-        style={{ borderColor: "var(--border)", background: "var(--card2)" }}
-      />
-    </form>
-  );
-}
+import { AddNodeDialog } from "./AddNodeDialog";
+import type { NodeKind, NodeRecord, TreeNode } from "@/lib/client/types";
 
 function EditableTitle({
   title,
@@ -192,21 +151,57 @@ function AttrEditor({
 }
 
 function Row({ tree, slug, onChanged }: { tree: TreeNode; slug: string; onChanged: () => void }) {
+  const { t } = useI18n();
   const { node } = tree;
   const isGroup = node.kind === "GROUP";
+  const [showAdd, setShowAdd] = useState(false);
 
   if (isGroup) {
     return (
       <div className="mt-4 first:mt-0">
-        <h3 className="px-1 text-xs font-semibold tracking-wide uppercase" style={{ color: "var(--muted)" }}>
-          {node.title}
-        </h3>
+        <div className="group flex items-center gap-2 px-1">
+          <h3 className="text-xs font-semibold tracking-wide uppercase" style={{ color: "var(--muted)" }}>
+            {node.title}
+          </h3>
+          <button
+            type="button"
+            title={t("deletePhase")}
+            onClick={() => {
+              const reason = window.prompt(t("deletePhasePrompt"));
+              if (reason) patchNode(slug, node.id, { archived: true, reason }).then(onChanged);
+            }}
+            className="text-[11px] opacity-0 transition-opacity group-hover:opacity-100"
+            style={{ color: "var(--muted)" }}
+          >
+            ✕
+          </button>
+        </div>
         <div className="mt-1.5 flex flex-col gap-1 border-l pl-3" style={{ borderColor: "var(--border)" }}>
           {tree.children.map((child) => (
             <Row key={child.node.id} tree={child} slug={slug} onChanged={onChanged} />
           ))}
-          <AddRow placeholder="add step" onAdd={(title) => addNode(slug, { kind: "STEP", title, parentId: node.id }).then(onChanged)} />
+          <button
+            type="button"
+            onClick={() => setShowAdd(true)}
+            className="rounded-md px-2 py-1 text-left text-xs"
+            style={{ color: "var(--muted)" }}
+          >
+            + {t("addStep")}
+          </button>
         </div>
+
+        {showAdd && (
+          <AddNodeDialog
+            slug={slug}
+            kind="STEP"
+            parentId={node.id}
+            onClose={() => setShowAdd(false)}
+            onAdded={() => {
+              setShowAdd(false);
+              onChanged();
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -271,11 +266,28 @@ function Row({ tree, slug, onChanged }: { tree: TreeNode; slug: string; onChange
         </div>
       )}
       <div className="ml-8 pl-3">
-        <AddRow
-          placeholder="add subtask"
-          onAdd={(title) => addNode(slug, { kind: "STEP", title, parentId: node.id }).then(onChanged)}
-        />
+        <button
+          type="button"
+          onClick={() => setShowAdd(true)}
+          className="rounded-md px-2 py-1 text-left text-xs"
+          style={{ color: "var(--muted)" }}
+        >
+          + {t("addStep")}
+        </button>
       </div>
+
+      {showAdd && (
+        <AddNodeDialog
+          slug={slug}
+          kind="STEP"
+          parentId={node.id}
+          onClose={() => setShowAdd(false)}
+          onAdded={() => {
+            setShowAdd(false);
+            onChanged();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -283,6 +295,7 @@ function Row({ tree, slug, onChanged }: { tree: TreeNode; slug: string; onChange
 export function BoardTree({ nodes, slug, onChanged }: { nodes: NodeRecord[]; slug: string; onChanged: () => void }) {
   const { t } = useI18n();
   const tree = buildClientTree(nodes);
+  const [addKind, setAddKind] = useState<NodeKind | null>(null);
 
   return (
     <div className="flex flex-col gap-1">
@@ -290,9 +303,25 @@ export function BoardTree({ nodes, slug, onChanged }: { nodes: NodeRecord[]; slu
         <Row key={t.node.id} tree={t} slug={slug} onChanged={onChanged} />
       ))}
       <div className="mt-3 flex gap-3">
-        <AddRow placeholder={t("addStep")} onAdd={(title) => addNode(slug, { kind: "STEP", title }).then(onChanged)} />
-        <AddRow placeholder={t("addGroup")} onAdd={(title) => addNode(slug, { kind: "GROUP", title }).then(onChanged)} />
+        <button type="button" onClick={() => setAddKind("STEP")} className="rounded-md px-2 py-1 text-left text-xs" style={{ color: "var(--muted)" }}>
+          + {t("addStep")}
+        </button>
+        <button type="button" onClick={() => setAddKind("GROUP")} className="rounded-md px-2 py-1 text-left text-xs" style={{ color: "var(--muted)" }}>
+          + {t("addGroup")}
+        </button>
       </div>
+
+      {addKind && (
+        <AddNodeDialog
+          slug={slug}
+          kind={addKind}
+          onClose={() => setAddKind(null)}
+          onAdded={() => {
+            setAddKind(null);
+            onChanged();
+          }}
+        />
+      )}
     </div>
   );
 }

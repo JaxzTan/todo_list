@@ -86,24 +86,7 @@ export function AppShell({ activeSlug, children }: { activeSlug?: string; childr
           )}
         </nav>
 
-        <div className="flex items-center gap-2 border-t pt-4 text-xs" style={{ borderColor: "rgba(255,255,255,0.1)" }}>
-          <button
-            type="button"
-            onClick={() => setLocale(locale === "en" ? "zh" : "en")}
-            className="rounded-md px-2 py-1"
-            style={{ background: "rgba(255,255,255,0.06)" }}
-          >
-            {locale === "en" ? "中文" : "EN"}
-          </button>
-          <button
-            type="button"
-            onClick={toggleTheme}
-            title={t("theme")}
-            className="rounded-md px-2 py-1"
-            style={{ background: "rgba(255,255,255,0.06)" }}
-          >
-            {theme === "dark" ? "☀︎" : "☾"}
-          </button>
+        <div className="flex items-center border-t pt-4 text-xs" style={{ borderColor: "rgba(255,255,255,0.1)" }}>
           <button
             type="button"
             onClick={() => {
@@ -118,7 +101,28 @@ export function AppShell({ activeSlug, children }: { activeSlug?: string; childr
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+      <main className="relative min-w-0 flex-1 overflow-y-auto">
+        <div className="absolute top-4 right-4 z-10 flex gap-2">
+          <button
+            type="button"
+            onClick={() => setLocale(locale === "en" ? "zh" : "en")}
+            className="rounded-lg border px-3 py-1.5 text-xs font-medium"
+            style={{ borderColor: "var(--border)", background: "var(--card)" }}
+          >
+            {locale === "en" ? "中文" : "EN"}
+          </button>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            title={t("theme")}
+            className="rounded-lg border px-3 py-1.5 text-xs font-medium"
+            style={{ borderColor: "var(--border)", background: "var(--card)" }}
+          >
+            {theme === "dark" ? "☀︎" : "☾"}
+          </button>
+        </div>
+        {children}
+      </main>
 
       {showNew && (
         <NewBoardDialog

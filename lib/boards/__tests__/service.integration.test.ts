@@ -169,6 +169,30 @@ describe("reword and attributes (TR-9, TR-10)", () => {
     detail = await getBoardDetail(userId, board.slug);
     expect(detail.nodes).toHaveLength(1);
   });
+
+  it("cutting a phase (GROUP) cascades to its steps, and reverting the cut restores the whole subtree", async () => {
+    const board = await freshBoard();
+    const phase = await addNode(userId, board.slug, { kind: "GROUP", title: "Phase 1" });
+    const step = await addNode(userId, board.slug, { kind: "STEP", title: "Inside step", parentId: phase.id });
+    await addNode(userId, board.slug, { kind: "STEP", title: "Subtask", parentId: step.id });
+
+    await patchNode(userId, board.slug, phase.id, { archived: true, reason: "phase cut" });
+
+    // The phase and both descendants come out of the active tree together —
+    // no orphaned-but-counted steps left behind.
+    let detail = await getBoardDetail(userId, board.slug);
+    expect(detail.nodes).toHaveLength(0);
+    expect(detail.counts.total).toBe(0);
+
+    const cut = await withTenant(userId, (tx) =>
+      tx.event.findFirstOrThrow({ where: { nodeId: phase.id, type: "NODE_CUT" } }),
+    );
+    expect((cut.payload as { cascadedIds: string[] }).cascadedIds).toHaveLength(2);
+
+    await revertEvent(userId, board.slug, cut.id);
+    detail = await getBoardDetail(userId, board.slug);
+    expect(detail.nodes).toHaveLength(3);
+  });
 });
 
 describe("owner-assigned steps and next action (FR-20, TR-5)", () => {

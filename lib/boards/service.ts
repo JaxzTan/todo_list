@@ -37,6 +37,16 @@ export function createBoard(userId: string, input: CreateBoardInput) {
   );
 }
 
+export async function deleteBoard(userId: string, slug: string): Promise<void> {
+  await withTenant(userId, async (tx) => {
+    const board = await findBoardOrThrow(tx, userId, slug);
+    // Every child relation (nodes, events, sessions, imports, reports) is
+    // `onDelete: Cascade` on Board, so removing the row removes the board's
+    // entire subtree in one statement.
+    await tx.board.delete({ where: { id: board.id } });
+  });
+}
+
 export interface BoardDetail {
   board: Board;
   nodes: Awaited<ReturnType<Prisma.TransactionClient["node"]["findMany"]>>;

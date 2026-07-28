@@ -94,7 +94,16 @@ export async function revertEvent(userId: string, slug: string, eventId: string)
         break;
       }
       case "NODE_CUT": {
-        await tx.node.update({ where: { id: node.id }, data: { archivedAt: null } });
+        // Restore the node and any descendants the cut took down with it
+        // (see the cascade in patchNode). Older cuts have no cascadedIds and
+        // just restore the single node.
+        const cascadedIds = Array.isArray(payload.cascadedIds)
+          ? (payload.cascadedIds as string[])
+          : [];
+        await tx.node.updateMany({
+          where: { id: { in: [node.id, ...cascadedIds] }, boardId: board.id },
+          data: { archivedAt: null },
+        });
         compensating = await emitEvent(tx, {
           boardId: board.id,
           sessionId,

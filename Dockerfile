@@ -21,5 +21,5 @@ COPY . .
 ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
 RUN npx prisma generate
 
-EXPOSE 3000
+EXPOSE 3300
 CMD ["npm", "run", "dev"]

@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/client/auth";
 import { useI18n } from "@/lib/client/i18n";
+import { useTheme } from "@/lib/client/theme";
 
 export default function LoginPage() {
   const { status, login } = useAuth();
   const { t, locale, setLocale } = useI18n();
+  const { theme, toggleTheme } = useTheme();
   const router = useRouter();
   const [token, setTokenValue] = useState("");
   const [error, setError] = useState(false);
@@ -35,14 +37,25 @@ export default function LoginPage() {
       className="flex min-h-screen flex-col items-center justify-center gap-8 px-4"
       style={{ background: "var(--bg)", color: "var(--text)" }}
     >
-      <button
-        type="button"
-        onClick={() => setLocale(locale === "en" ? "zh" : "en")}
-        className="absolute top-5 right-5 rounded-lg border px-3 py-1.5 text-xs font-medium"
-        style={{ borderColor: "var(--border)", background: "var(--card)" }}
-      >
-        {locale === "en" ? "中文" : "EN"}
-      </button>
+      <div className="absolute top-5 right-5 flex gap-2">
+        <button
+          type="button"
+          onClick={() => setLocale(locale === "en" ? "zh" : "en")}
+          className="rounded-lg border px-3 py-1.5 text-xs font-medium"
+          style={{ borderColor: "var(--border)", background: "var(--card)" }}
+        >
+          {locale === "en" ? "中文" : "EN"}
+        </button>
+        <button
+          type="button"
+          onClick={toggleTheme}
+          title={t("theme")}
+          className="rounded-lg border px-3 py-1.5 text-xs font-medium"
+          style={{ borderColor: "var(--border)", background: "var(--card)" }}
+        >
+          {theme === "dark" ? "☀︎" : "☾"}
+        </button>
+      </div>
 
       <div className="flex items-center gap-2 text-lg font-semibold" style={{ color: "var(--accent)" }}>
         <span
