@@ -47,6 +47,7 @@ jobs:
         with:
           node-version: 24
       - run: npm install
+      - run: npx prisma generate
       - run: npx prisma migrate deploy
       - run: npm test
 
