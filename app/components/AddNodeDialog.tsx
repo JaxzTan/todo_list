@@ -21,7 +21,7 @@ export function AddNodeDialog({
   const { t } = useI18n();
   const [title, setTitle] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const heading = kind === "GROUP" ? t("addGroup") : t("addStep");
+  const placeholder = kind === "GROUP" ? t("addGroup") : t("addStep");
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -36,47 +36,22 @@ export function AddNodeDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-md rounded-2xl border p-6"
-        style={{ background: "var(--card)", borderColor: "var(--border)", color: "var(--text)" }}
-      >
-        <h2 className="text-base font-semibold">{heading}</h2>
-
-        <label htmlFor="add-node-title" className="mt-4 block text-xs font-medium" style={{ color: "var(--muted)" }}>
-          {t("title")}
-        </label>
-        <textarea
-          id="add-node-title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          autoFocus
-          required
-          rows={4}
-          className="mt-1 w-full resize-none rounded-lg border px-3 py-2 text-sm"
-          style={{ borderColor: "var(--border)", background: "var(--card2)" }}
-        />
-
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border px-3 py-1.5 text-sm"
-            style={{ borderColor: "var(--border)" }}
-          >
-            {t("cancel")}
-          </button>
-          <button
-            type="submit"
-            disabled={submitting || !title.trim()}
-            className="rounded-lg px-3 py-1.5 text-sm font-semibold disabled:opacity-50"
-            style={{ background: "var(--accent)", color: "var(--accent-fg)" }}
-          >
-            {t("save")}
-          </button>
-        </div>
-      </form>
-    </div>
+    <form onSubmit={onSubmit} className="mt-1 flex items-center gap-2">
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder={placeholder}
+        autoFocus
+        disabled={submitting}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onClose();
+        }}
+        onBlur={() => {
+          if (!title.trim()) onClose();
+        }}
+        className="w-full rounded-md border px-2 py-1 text-xs"
+        style={{ borderColor: "var(--border)", background: "var(--card2)" }}
+      />
+    </form>
   );
 }
