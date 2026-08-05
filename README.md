@@ -2,7 +2,6 @@
 
 A persistent, three-layer task board (project → task → subtask) driven from ordinary conversation with a Claude skill, backed by a Next.js web app and PostgreSQL.
 
-[![CI](https://github.com/JaxzTan/todo_list/actions/workflows/ci.yml/badge.svg)](https://github.com/JaxzTan/todo_list/actions/workflows/ci.yml)
 
 <!-- TODO: add a demo.gif or screenshot of the board view under docs/ and link it here -->
 
