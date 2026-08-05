@@ -96,4 +96,4 @@ CI (`.github/workflows/ci.yml`) runs typecheck+lint, unit tests, Playwright e2e,
 Personal project, not currently accepting external contributions. <!-- TODO: add CONTRIBUTING.md if that changes -->
 
 ## License
-No license file yet — all rights reserved by default. <!-- TODO: add a LICENSE if this is meant to be open source -->
+Dual-licensed under either [MIT](LICENSE-MIT) or [Apache License, Version 2.0](LICENSE-APACHE), at your option.
