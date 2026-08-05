@@ -2,88 +2,99 @@
 
 A persistent, three-layer task board (project → task → subtask) driven from ordinary conversation with a Claude skill, backed by a Next.js web app and PostgreSQL.
 
-## What it does
+[![CI](https://github.com/JaxzTan/todo_list/actions/workflows/ci.yml/badge.svg)](https://github.com/JaxzTan/todo_list/actions/workflows/ci.yml)
 
-Exec Board tracks multi-step, multi-session work without a separate act of "updating the tracker." A Claude skill client and a web app both read/write the same board through one API, so a plan you state in chat, its status changes, blockers, and decisions are captured automatically and survive across sessions — with a single markdown file as the portable export format. See `docs/3 Layers Rule PRD (1).md` (PRD) for goals and user stories, and `architecture.md` / `docs/3 Layers Rule PRD (3).md` (TRD) for the full system design.
+<!-- TODO: add a demo.gif or screenshot of the board view under docs/ and link it here -->
 
-## Requirements
+## Features
+- Single API backs two clients — a Claude skill (in-chat) and a Next.js web app — so a plan stated in chat and its status changes stay in sync automatically
+- Three-layer node tree (project/phase → task → subtask) with a server-derived "next action," never stored client-side
+- Append-only event log (`Event`) is the source of truth; every mutation is reversible via compensating revert, not deletion
+- Postgres row-level security, keyed per-transaction, isolates each user's boards at the database layer
+- Lossless markdown import/export (`board-codec`) so a board is portable as a single `.md` file
+- One personal-access-token per user, argon2-hashed, bearer auth on every route but `/api/health`
 
-- Node.js 24
-- Docker + Docker Compose (for local Postgres)
-- `ngrok` (only needed to expose the app to the Claude skill sandbox)
+## Quick Start
+```bash
+git clone git@github.com:JaxzTan/todo_list.git
+cd todo_list
+npm install
 
-## Setup
+# create .env with the variables listed under Configuration below
 
-1. Install dependencies:
-   ```
-   npm ci
-   ```
-2. Create `.env` in the repo root with the variables listed under [Configuration](#configuration) below.
-3. Start Postgres:
-   ```
-   npm run db:up
-   ```
-4. Run migrations and generate the Prisma client:
-   ```
-   npm run db:migrate
-   npm run db:generate
-   ```
-5. Sync the `exec_board_app` role's password (RLS-scoped DB role) from `.env`:
-   ```
-   bash scripts/setup-db-role.sh
-   ```
-6. Issue a personal access token per user (prints the raw token once — save it):
-   ```
-   node --env-file=.env scripts/issue-token.mts <handle>
-   ```
+npm run db:up                          # start Postgres via Docker Compose
+npm run db:migrate && npm run db:generate
+bash scripts/setup-db-role.sh          # sync the RLS-scoped app role's password from .env
+node --env-file=.env scripts/issue-token.mts <handle>   # prints a PAT once — save it
 
-## Running it
-
-**Local dev (no Docker for the app):**
-```
 npm run dev
 ```
-App runs at `http://localhost:3300`.
+Open http://localhost:3300
 
-**Full stack via Docker Compose** (app + Postgres, with file-watch hot reload):
-```
+Alternatively, run the full stack (app + Postgres) via Docker Compose:
+```bash
 make up      # build + start, prints the web URL
 make logs    # follow logs
 make down    # stop and remove containers
 ```
 
-**Expose to the Claude skill sandbox via ngrok:**
+## Requirements
+Node.js 24, Docker + Docker Compose (for local Postgres), `ngrok` (only to expose the app to the Claude skill sandbox)
+
+## Configuration
+| Var | Default | Description |
+|---|---|---|
+| `DATABASE_URL` | — | Postgres connection string, superuser role (migrations, Prisma Studio) |
+| `APP_DATABASE_URL` | — | Postgres connection string, RLS-scoped `exec_board_app` role (app runtime) |
+| `DB_USER` / `DB_PASSWORD` / `DB_NAME` / `DB_PORT` / `DB_HOST` | — | Local Postgres container credentials/connection, used by `docker-compose.yml` |
+| `APP_DB_PASSWORD` | — | Password synced into the `exec_board_app` role by `scripts/setup-db-role.sh` |
+| `NGROK` | — | ngrok auth token, used by `scripts/start-tunnel.sh` |
+| `PAT_<HANDLE>` (e.g. `PAT_JAXZ`) | — | Issued personal access token per user, read by client scripts |
+| `EXEC_BOARD_BASE_URL` | — | Base URL the skill client calls; falls back to local file mode if unreachable |
+| `EXEC_BOARD_TOKEN` | — | Bearer token the skill client sends as `Authorization: Bearer <token>` |
+| `EXEC_BOARD_LOCAL_DIR` | `.exec-board/` | Local fallback directory the skill client writes to when the API is unreachable |
+
+## Usage
+Every route but `GET /api/health` requires a bearer token issued by `scripts/issue-token.mts`:
+```bash
+curl http://localhost:3300/api/boards/my-project \
+  -H "Authorization: Bearer $EXEC_BOARD_TOKEN"
 ```
-make tunnel       # starts the stack (if not up) + watch mode + ngrok in the foreground
-make stop-tunnel  # stop the tunnel and watch mode (containers keep running)
+```json
+{"board":{"slug":"my-project","title":"..."},"nodes":[...],"nextAction":{"nodeId":"...","number":"1.2","text":"..."},"counts":{"done":3,"total":9}}
+```
+Full endpoint reference: `docs/endpoint.md`.
+
+## Architecture
+Two clients — a Claude skill and a Next.js web app — operate on one board format through a shared `board-codec` package, backed by a single PostgreSQL database behind a Next.js API. See `architecture.md` for the full system design (data model, tenancy, security model, testing strategy) and `docs/3 Layers Rule PRD (1).md` / `docs/3 Layers Rule PRD (3).md` for the PRD/TRD.
+
+```mermaid
+flowchart TD
+    subgraph clients [Clients]
+      A[Claude skill]
+      B[Web app]
+    end
+    C[board-codec]
+    D[Board API]
+    G[(PostgreSQL)]
+
+    A --> C --> D --> G
+    B --> C
+    B --> D
 ```
 
-## Common commands
-
-| Command | Purpose |
-|---|---|
-| `npm run dev` / `build` / `start` | Next.js dev server / production build / start |
-| `npm run lint` / `typecheck` | ESLint / `tsc --noEmit` |
-| `npm test` | Vitest (root + workspace packages, e.g. `board-codec`) |
-| `npm run e2e` | Playwright end-to-end tests |
-| `npm run db:up` / `db:down` | Start/stop the Postgres container |
-| `npm run db:migrate` / `db:generate` | Run Prisma migrations / regenerate the Prisma client |
-| `npm run db:backup` | Run `scripts/backup-db.sh` (`pg_dump` backup) |
-| `make up` / `down` / `stop` / `logs` / `clean` | Docker Compose stack lifecycle |
-| `make tunnel` / `stop-tunnel` | Start/stop the ngrok tunnel + watch mode |
-| `node --env-file=.env scripts/issue-token.mts <handle>` | Issue a new PAT for a user |
-| `bash scripts/setup-db-role.sh` | Sync the app DB role's password from `.env` |
-
+## Development
+```bash
+npm run dev         # Next.js dev server, http://localhost:3300
+npm test             # Vitest (root + workspace packages)
+npm run e2e          # Playwright end-to-end tests
+npm run lint          # ESLint
+npm run typecheck     # tsc --noEmit
+```
 CI (`.github/workflows/ci.yml`) runs typecheck+lint, unit tests, Playwright e2e, and a Prisma migration drift check on every PR and push to `main`.
 
-## Troubleshooting
+## Contributing
+Personal project, not currently accepting external contributions. <!-- TODO: add CONTRIBUTING.md if that changes -->
 
-| Symptom | Cause → Fix |
-|---|---|
-| API returns `401 {"error":"unauthorized"}` | Missing/invalid bearer token → issue one with `scripts/issue-token.mts` and send `Authorization: Bearer <PAT>` |
-| API returns `404` for a board you believe exists | Board belongs to another user, or the slug is wrong — cross-tenant lookups intentionally 404 instead of 403 (see `architecture.md`) |
-| `409 conflict` when setting a node to `doing` | Only one `doing` step is allowed per board at a time — resolve or move the current one first |
-| `409 conflict` when setting a node to `stuck` | A `blocker` object is required on the same request |
-| `make tunnel` fails to reach the skill client the next day | Free-tier ngrok hostnames rotate on restart — see the "Infrastructure & environments" section of the TRD for the reserved-domain / resolver fix |
-| Skill client isn't syncing to the API | It falls back to local file mode (`.exec-board/`) when `/api/health` is unreachable; check the container/tunnel are up, then re-sync — the next successful sync imports the local file as a new revision rather than overwriting |
-| `exec_board_app` role auth fails after changing `.env` | Re-run `bash scripts/setup-db-role.sh` to sync the role's password |
+## License
+No license file yet — all rights reserved by default. <!-- TODO: add a LICENSE if this is meant to be open source -->
