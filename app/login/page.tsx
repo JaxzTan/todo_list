@@ -7,11 +7,14 @@ import { useI18n } from "@/lib/client/i18n";
 import { useTheme } from "@/lib/client/theme";
 
 export default function LoginPage() {
-  const { status, login } = useAuth();
+  const { status, login, loginWithPassword } = useAuth();
   const { t, locale, setLocale } = useI18n();
   const { theme, toggleTheme } = useTheme();
   const router = useRouter();
+  const [mode, setMode] = useState<"token" | "password">("token");
   const [token, setTokenValue] = useState("");
+  const [handle, setHandle] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -19,7 +22,12 @@ export default function LoginPage() {
     if (status === "authed") router.replace("/boards");
   }, [status, router]);
 
-  async function onSubmit(e: React.FormEvent) {
+  function switchMode(next: "token" | "password") {
+    setMode(next);
+    setError(false);
+  }
+
+  async function onSubmitToken(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setError(false);
@@ -32,78 +40,90 @@ export default function LoginPage() {
     }
   }
 
+  async function onSubmitPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(false);
+    try {
+      const ok = await loginWithPassword(handle.trim(), password);
+      if (ok) router.replace("/boards");
+      else setError(true);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
-    <main
-      className="flex min-h-screen flex-col items-center justify-center gap-8 px-4"
-      style={{ background: "var(--bg)", color: "var(--text)" }}
-    >
-      <div className="absolute top-5 right-5 flex gap-2">
-        <button
-          type="button"
-          onClick={() => setLocale(locale === "en" ? "zh" : "en")}
-          className="rounded-lg border px-3 py-1.5 text-xs font-medium"
-          style={{ borderColor: "var(--border)", background: "var(--card)" }}
-        >
-          {locale === "en" ? "中文" : "EN"}
+    <main style={{ position: "relative", minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "var(--space-8)", padding: "var(--space-4)" }}>
+      <div style={{ position: "absolute", top: 20, right: 20, display: "flex", gap: "var(--space-2)" }}>
+        <button type="button" onClick={() => setLocale(locale === "en" ? "zh" : "en")} className="btn btn-secondary">
+          {locale === "en" ? "EN" : "中文"}
         </button>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          title={t("theme")}
-          className="rounded-lg border px-3 py-1.5 text-xs font-medium"
-          style={{ borderColor: "var(--border)", background: "var(--card)" }}
-        >
-          {theme === "dark" ? "☀︎" : "☾"}
+        <button type="button" onClick={toggleTheme} title={t("theme")} className="btn btn-secondary">
+          {theme === "dark" ? t("themeDark") : t("themeLight")}
         </button>
       </div>
 
-      <div className="flex items-center gap-2 text-lg font-semibold" style={{ color: "var(--accent)" }}>
-        <span
-          className="inline-block h-6 w-6 rounded-md"
-          style={{ background: "var(--accent)" }}
-          aria-hidden
-        />
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: 18, fontWeight: 500, color: "var(--color-accent)" }}>
         {t("appName")}
       </div>
 
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm rounded-2xl border p-6 shadow-sm"
-        style={{ background: "var(--card)", borderColor: "var(--border)" }}
-      >
-        <h1 className="text-lg font-semibold">{t("loginTitle")}</h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-          {t("loginSub")}
-        </p>
+      <div className="card elev-md" style={{ width: "min(360px, 100%)", padding: "var(--space-6)" }}>
+        <h1 style={{ fontSize: 20 }}>{t("loginTitle")}</h1>
+        <p className="text-muted" style={{ fontSize: 13 }}>{mode === "token" ? t("loginSub") : t("loginSubPassword")}</p>
 
-        <input
-          type="password"
-          value={token}
-          onChange={(e) => setTokenValue(e.target.value)}
-          placeholder={t("loginPlaceholder")}
-          autoFocus
-          className="mt-5 w-full rounded-lg border px-3 py-2 text-sm font-mono outline-none focus:ring-2"
-          style={{
-            borderColor: error ? "var(--danger)" : "var(--border)",
-            background: "var(--card2)",
-            color: "var(--text)",
-          }}
-        />
-        {error && (
-          <p className="mt-2 text-sm" style={{ color: "var(--danger)" }}>
-            {t("loginError")}
-          </p>
+        <div className="seg" style={{ marginTop: "var(--space-4)", width: "100%" }}>
+          {(["token", "password"] as const).map((m) => (
+            <button key={m} type="button" aria-pressed={mode === m} onClick={() => switchMode(m)} className="seg-opt" style={{ flex: 1, justifyContent: "center" }}>
+              {m === "token" ? t("loginTabToken") : t("loginTabPassword")}
+            </button>
+          ))}
+        </div>
+
+        {mode === "token" ? (
+          <form onSubmit={onSubmitToken}>
+            <input
+              type="password"
+              value={token}
+              onChange={(e) => setTokenValue(e.target.value)}
+              placeholder={t("loginPlaceholder")}
+              autoFocus
+              className="input"
+              style={{ marginTop: "var(--space-4)", fontFamily: "monospace", borderColor: error ? "var(--color-danger)" : undefined }}
+            />
+            {error && <p style={{ marginTop: "var(--space-2)", fontSize: 13, color: "var(--color-danger)" }}>{t("loginError")}</p>}
+            <button type="submit" disabled={submitting || token.trim() === ""} className="btn btn-primary btn-block">
+              {t("signIn")}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={onSubmitPassword}>
+            <input
+              type="text"
+              value={handle}
+              onChange={(e) => setHandle(e.target.value)}
+              placeholder={t("handle")}
+              autoFocus
+              autoCapitalize="off"
+              autoCorrect="off"
+              className="input"
+              style={{ marginTop: "var(--space-4)", borderColor: error ? "var(--color-danger)" : undefined }}
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={t("password")}
+              className="input"
+              style={{ marginTop: "var(--space-2)", borderColor: error ? "var(--color-danger)" : undefined }}
+            />
+            {error && <p style={{ marginTop: "var(--space-2)", fontSize: 13, color: "var(--color-danger)" }}>{t("loginErrorPassword")}</p>}
+            <button type="submit" disabled={submitting || handle.trim() === "" || password === ""} className="btn btn-primary btn-block">
+              {t("signIn")}
+            </button>
+          </form>
         )}
-
-        <button
-          type="submit"
-          disabled={submitting || token.trim() === ""}
-          className="mt-4 w-full rounded-lg py-2 text-sm font-semibold disabled:opacity-50"
-          style={{ background: "var(--accent)", color: "var(--accent-fg)" }}
-        >
-          {t("signIn")}
-        </button>
-      </form>
+      </div>
     </main>
   );
 }

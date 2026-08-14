@@ -2,7 +2,7 @@ import type { Board, Prisma } from "@prisma/client";
 import { withTenant } from "../db";
 import { NotFoundError } from "../api/errors";
 import { numberMap } from "./tree";
-import { resolveNextAction } from "./nextAction";
+import { rankCandidates } from "./nextAction";
 import type { CreateBoardInput } from "./schemas";
 
 export async function findBoardOrThrow(
@@ -50,7 +50,12 @@ export async function deleteBoard(userId: string, slug: string): Promise<void> {
 export interface BoardDetail {
   board: Board;
   nodes: Awaited<ReturnType<Prisma.TransactionClient["node"]["findMany"]>>;
-  nextAction: ReturnType<typeof resolveNextAction>;
+  nextAction: ReturnType<typeof rankCandidates>[number] | null;
+  // Runners-up after the next action — backs the "Then, probably" panel.
+  candidates: ReturnType<typeof rankCandidates>;
+  // Open blockers by node id — backs the inline blocker-reason row in the
+  // tree view (the wireframe's Fields "Blocker reason" column).
+  blockers: { nodeId: string; description: string }[];
   counts: { done: number; total: number };
 }
 
@@ -66,7 +71,31 @@ export async function getBoardDetail(userId: string, slug: string): Promise<Boar
       done: steps.filter((n) => n.status === "done" || n.status === "skipped").length,
       total: steps.length,
     };
-    return { board, nodes, nextAction: resolveNextAction(nodes), counts };
+    const ranked = rankCandidates(nodes);
+    const openBlockers = await tx.blocker.findMany({
+      where: { boardId: board.id, resolvedAt: null },
+      select: { nodeId: true, description: true },
+    });
+    return {
+      board,
+      nodes,
+      nextAction: ranked[0] ?? null,
+      candidates: ranked.slice(1, 4),
+      blockers: openBlockers,
+      counts,
+    };
+  });
+}
+
+export function updateBoard(userId: string, slug: string, input: { visibleFields?: string[] }) {
+  return withTenant(userId, async (tx) => {
+    const board = await findBoardOrThrow(tx, userId, slug);
+    return tx.board.update({
+      where: { id: board.id },
+      data: {
+        ...(input.visibleFields !== undefined ? { visibleFields: input.visibleFields } : {}),
+      },
+    });
   });
 }
 

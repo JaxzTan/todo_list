@@ -13,11 +13,14 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 function apply(theme: Theme) {
-  document.documentElement.classList.toggle("dark", theme === "dark");
+  document.documentElement.dataset.theme = theme;
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("light");
+  // "dark" matches the wireframe's default and app/layout.tsx's inline
+  // pre-hydration script, which sets data-theme="dark" unless a stored
+  // preference or prefers-color-scheme says otherwise.
+  const [theme, setTheme] = useState<Theme>("dark");
 
   useEffect(() => {
     // localStorage/matchMedia don't exist during SSR, so the real value can

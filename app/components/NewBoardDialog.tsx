@@ -51,78 +51,41 @@ export function NewBoardDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-md rounded-2xl border p-6"
-        style={{ background: "var(--card)", borderColor: "var(--border)", color: "var(--text)" }}
-      >
-        <h2 className="text-base font-semibold">{t("newBoard")}</h2>
+    <div className="dialog-backdrop" onClick={onClose}>
+      <form onSubmit={onSubmit} className="dialog" onClick={(e) => e.stopPropagation()}>
+        <h2 className="dialog-title">{t("newBoard")}</h2>
 
-        <label htmlFor="new-board-title" className="mt-4 block text-xs font-medium" style={{ color: "var(--muted)" }}>
-          Title
-        </label>
-        <input
-          id="new-board-title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          autoFocus
-          required
-          className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-          style={{ borderColor: "var(--border)", background: "var(--card2)" }}
-        />
+        <div className="field">
+          <label htmlFor="new-board-title">{t("title")}</label>
+          <input id="new-board-title" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus required className="input" />
+        </div>
 
-        <label htmlFor="new-board-goal" className="mt-3 block text-xs font-medium" style={{ color: "var(--muted)" }}>
-          {t("goal")}
-        </label>
-        <input
-          id="new-board-goal"
-          value={goal}
-          onChange={(e) => setGoal(e.target.value)}
-          required
-          className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-          style={{ borderColor: "var(--border)", background: "var(--card2)" }}
-        />
+        <div className="field">
+          <label htmlFor="new-board-goal">{t("goal")}</label>
+          <input id="new-board-goal" value={goal} onChange={(e) => setGoal(e.target.value)} required className="input" />
+        </div>
 
-        <div className="mt-3 flex gap-2">
+        <div className="seg" style={{ alignSelf: "flex-start" }}>
           {(["PROJECT", "DAY"] as const).map((opt) => (
             <button
               key={opt}
               type="button"
+              aria-pressed={type === opt}
               onClick={() => setType(opt)}
-              className="rounded-lg border px-3 py-1.5 text-xs font-medium"
-              style={{
-                borderColor: "var(--border)",
-                background: type === opt ? "var(--accent)" : "var(--card2)",
-                color: type === opt ? "var(--accent-fg)" : "var(--text)",
-              }}
+              className="seg-opt"
             >
               {opt}
             </button>
           ))}
         </div>
 
-        {error && (
-          <p className="mt-3 text-sm" style={{ color: "var(--danger)" }}>
-            {error}
-          </p>
-        )}
+        {error && <p className="dialog-body" style={{ color: "var(--color-danger)", opacity: 1 }}>{error}</p>}
 
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border px-3 py-1.5 text-sm"
-            style={{ borderColor: "var(--border)" }}
-          >
+        <div className="dialog-actions">
+          <button type="button" onClick={onClose} className="btn btn-secondary">
             {t("cancel")}
           </button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="rounded-lg px-3 py-1.5 text-sm font-semibold disabled:opacity-50"
-            style={{ background: "var(--accent)", color: "var(--accent-fg)" }}
-          >
+          <button type="submit" disabled={submitting} className="btn btn-primary">
             {t("save")}
           </button>
         </div>

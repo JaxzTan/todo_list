@@ -199,7 +199,7 @@ export async function patchNode(
         });
       }
 
-      // Attributes: due / prio / owner / quadrant / doneCondition.
+      // Attributes: due / prio / owner / doneCondition.
       const attrChanges: Record<string, { from: string | null; to: string | null }> = {};
       const attrData: Prisma.NodeUpdateInput = {};
 
@@ -218,10 +218,6 @@ export async function patchNode(
         attrChanges.owner = { from: node.owner, to: input.owner };
         attrData.owner = input.owner;
         if (input.owner) newActiveColumns.add(ACTIVE_COLUMN_BY_FIELD.owner);
-      }
-      if (input.quadrant !== undefined) {
-        attrChanges.quadrant = { from: node.quadrant, to: input.quadrant };
-        attrData.quadrant = input.quadrant;
       }
       if (input.doneCondition !== undefined) {
         attrChanges.doneCondition = { from: node.doneCondition, to: input.doneCondition };

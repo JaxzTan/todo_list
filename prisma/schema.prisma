@@ -30,16 +30,6 @@ enum Prio {
   low
 }
 
-// Matrix view (Eisenhower quadrants) — added per the updated design, not in
-// the original TRD. Placement is user-set ("click to move to next
-// quadrant"), so it has to be stored rather than derived from prio/due.
-enum Quadrant {
-  do_now
-  schedule
-  delegate
-  drop
-}
-
 enum EventSource {
   INFERRED
   EXPLICIT
@@ -61,12 +51,30 @@ enum EventType {
 }
 
 model User {
+  id           String   @id @default(cuid())
+  handle       String   @unique
+  tokenHash    String   @unique
+  passwordHash String?
+  createdAt    DateTime @default(now())
+
+  boards       Board[]
+  authSessions AuthSession[]
+}
+
+// A password login can't hand back the PAT (tokenHash is a one-way argon2
+// hash — TR-17), so it mints its own bearer credential instead. Kept
+// separate from User.tokenHash so logging in with a password never rotates
+// or invalidates the PAT that scripts/board-client.mts relies on.
+model AuthSession {
   id        String   @id @default(cuid())
-  handle    String   @unique
+  userId    String
   tokenHash String   @unique
   createdAt DateTime @default(now())
+  expiresAt DateTime
 
-  boards Board[]
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Board {
@@ -79,6 +87,10 @@ model Board {
   dateKey       String?
   deadline      DateTime?
   activeColumns String[]  @default([])
+  // Nocturne "Fields shown on rows" popover — a user preference, separate
+  // from activeColumns (which is TR-9's sticky-once-set tracker feeding the
+  // markdown grammar). Defaults match the wireframe's stated defaults.
+  visibleFields String[]  @default(["due", "prio", "blocker"])
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -106,7 +118,6 @@ model Node {
   due           DateTime?
   prio          Prio?
   owner         String?
-  quadrant      Quadrant?
   archivedAt    DateTime?
   createdAt     DateTime   @default(now())
 

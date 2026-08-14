@@ -19,7 +19,6 @@ function metadataLine(node: StepNode): string {
   if (node.due) parts.push(`due:${node.due}`);
   if (node.prio) parts.push(`prio:${node.prio}`);
   if (node.owner) parts.push(`owner:${node.owner}`);
-  if (node.quadrant) parts.push(`q:${node.quadrant}`);
   return parts.length > 0 ? ` \`${parts.join(" ")}\`` : "";
 }
 

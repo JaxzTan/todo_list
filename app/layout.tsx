@@ -12,7 +12,7 @@ const THEME_INIT_SCRIPT = `
   try {
     var stored = localStorage.getItem("exec-board:theme");
     var dark = stored ? stored === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-    document.documentElement.classList.toggle("dark", dark);
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
   } catch (e) {}
 })();
 `;

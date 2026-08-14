@@ -25,8 +25,11 @@ function compareNumbers(a: string, b: string): number {
  * move to Waiting on and are excluded (FR-20); `stuck` is excluded too —
  * it needs its blocker resolved before it's actionable, `doing` stays
  * eligible since FR-7 already caps it at one in flight.
+ *
+ * Returns the full ranked list — index 0 is the next action, the rest back
+ * the wireframe's "Then, probably" runners-up.
  */
-export function resolveNextAction(rows: NodeRow[]): NextAction | null {
+export function rankCandidates(rows: NodeRow[]): NextAction[] {
   const numbered = numberTree(buildTree(rows));
 
   const candidates = numbered.filter(
@@ -37,8 +40,6 @@ export function resolveNextAction(rows: NodeRow[]): NextAction | null {
       (row.status === "todo" || row.status === "doing"),
   );
 
-  if (candidates.length === 0) return null;
-
   candidates.sort((a, b) => {
     if (a.phaseIndex !== b.phaseIndex) return a.phaseIndex - b.phaseIndex;
     const aPrio = PRIO_RANK[a.row.prio ?? ""] ?? 3;
@@ -47,6 +48,9 @@ export function resolveNextAction(rows: NodeRow[]): NextAction | null {
     return compareNumbers(a.number, b.number);
   });
 
-  const winner = candidates[0]!;
-  return { nodeId: winner.row.id, number: winner.number, text: winner.row.title };
+  return candidates.map(({ row, number }) => ({ nodeId: row.id, number, text: row.title }));
+}
+
+export function resolveNextAction(rows: NodeRow[]): NextAction | null {
+  return rankCandidates(rows)[0] ?? null;
 }

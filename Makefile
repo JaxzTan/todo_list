@@ -7,7 +7,7 @@ COMPOSE_FILE = docker-compose.yml
 # compose commands are already scoped to this project's containers/images —
 # a raw `docker system prune` is not).
 
-.PHONY: all build up down stop logs clean tunnel stop-tunnel re
+.PHONY: all build up down stop logs clean dev tunnel stop-tunnel re
 
 all: build up
 
@@ -34,10 +34,22 @@ clean:
 
 # Starts the stack in watch mode — edits under app/, lib/, and
 # packages/board-codec/src sync straight into the running web container and
-# Next hot-reloads, no rebuild (see docker-compose.yml's develop.watch) —
-# then attaches ngrok in the foreground so you watch live tunnel traffic.
-# Ctrl+C stops ngrok; watch and the containers keep running underneath
-# (`make stop-tunnel` or `make down` to take those down too).
+# Next hot-reloads, no rebuild (see docker-compose.yml's develop.watch); a
+# package.json/package-lock.json/prisma/schema.prisma change instead
+# triggers a rebuild. Runs in the foreground; Ctrl+C stops watch, the
+# containers keep running underneath (`make down` to stop those too).
+dev: up
+	@docker compose -f $(COMPOSE_FILE) watch
+
+
+# reset hashed passwords for jaxz and jayci to the default value (the one in .env)
+reset:
+	@node --env-file=.env scripts/issue-token.mts jaxz
+	@node --env-file=.env scripts/issue-token.mts jayci
+
+# Same as dev, but also attaches ngrok in the foreground so you watch live
+# tunnel traffic. Ctrl+C stops ngrok; watch and the containers keep running
+# underneath (`make stop-tunnel` or `make down` to take those down too).
 tunnel: up
 	@docker compose -f $(COMPOSE_FILE) watch & \
 	sleep 2; \

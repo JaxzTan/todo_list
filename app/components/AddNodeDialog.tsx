@@ -36,7 +36,7 @@ export function AddNodeDialog({
   }
 
   return (
-    <form onSubmit={onSubmit} className="mt-1 flex items-center gap-2">
+    <form onSubmit={onSubmit} style={{ marginTop: "var(--space-1)" }}>
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
@@ -49,8 +49,8 @@ export function AddNodeDialog({
         onBlur={() => {
           if (!title.trim()) onClose();
         }}
-        className="w-full rounded-md border px-2 py-1 text-xs"
-        style={{ borderColor: "var(--border)", background: "var(--card2)" }}
+        className="input"
+        style={{ fontSize: 13 }}
       />
     </form>
   );

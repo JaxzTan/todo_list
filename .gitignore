@@ -37,3 +37,4 @@ backups/*.dump
 .claude/
 docs
 Three Layer Day Board Design/
+*.html

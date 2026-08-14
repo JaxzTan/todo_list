@@ -7,7 +7,6 @@ import type {
   CanonicalBoard,
   ParseResult,
   Prio,
-  Quadrant,
   StepNode,
   StepStatus,
 } from "./types";
@@ -51,9 +50,8 @@ function parseMetadata(raw: string | undefined): {
   due?: string;
   prio?: Prio;
   owner?: string;
-  quadrant?: Quadrant;
 } {
-  const out: { due?: string; prio?: Prio; owner?: string; quadrant?: Quadrant } = {};
+  const out: { due?: string; prio?: Prio; owner?: string } = {};
   if (!raw) return out;
   for (const token of raw.trim().split(/\s+/).filter(Boolean)) {
     const [key, ...rest] = token.split(":");
@@ -62,12 +60,6 @@ function parseMetadata(raw: string | undefined): {
     else if (key === "prio" && (value === "high" || value === "med" || value === "low")) {
       out.prio = value;
     } else if (key === "owner" && value) out.owner = value;
-    else if (
-      key === "q" &&
-      (value === "do_now" || value === "schedule" || value === "delegate" || value === "drop")
-    ) {
-      out.quadrant = value;
-    }
   }
   return out;
 }

@@ -2,6 +2,7 @@ services:
   db:
     image: postgres:17-alpine
     restart: unless-stopped
+    container_name: exec-board-db
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -21,6 +22,7 @@ services:
     restart: unless-stopped
     ports:
       - "3300:3300"
+    container_name: exec-board-web
     environment:
       NODE_ENV: development
       # Container-to-container networking uses the service name (db) and
@@ -64,6 +66,7 @@ services:
     build: .
     restart: unless-stopped
     command: ["npx", "prisma", "studio", "--port", "5555", "--browser", "none"]
+    container_name: exec-board-studio
     ports:
       - "127.0.0.1:5555:5555"
     environment:

@@ -34,7 +34,6 @@ function toCodecNode(t: TreeNode): CodecNode {
     due: isoDate(t.row.due),
     prio: t.row.prio ?? undefined,
     owner: t.row.owner ?? undefined,
-    quadrant: t.row.quadrant ?? undefined,
     children: t.children.map(toCodecNode) as CodecStepNode[],
   };
 }
@@ -182,7 +181,6 @@ export async function importBoardMarkdown(
                   due: n.due ? new Date(`${n.due}T00:00:00.000Z`) : null,
                   prio: n.prio,
                   owner: n.owner,
-                  quadrant: n.quadrant,
                 }
               : {}),
           },

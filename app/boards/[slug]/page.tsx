@@ -5,9 +5,13 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/app/components/AppShell";
 import { BoardTree } from "@/app/components/BoardTree";
 import { MatrixView } from "@/app/components/MatrixView";
+import { NextActionAside } from "@/app/components/NextActionAside";
+import { FieldsPopover } from "@/app/components/FieldsPopover";
+import { EventLogDialog } from "@/app/components/EventLogDialog";
 import { api, downloadText } from "@/lib/client/api";
 import { useI18n } from "@/lib/client/i18n";
-import type { BoardDetailResponse } from "@/lib/client/types";
+import { flatten, buildClientTree } from "@/lib/client/tree";
+import type { BoardDetailResponse, EventRecord } from "@/lib/client/types";
 
 interface ReportResponse {
   report: { body: string };
@@ -20,118 +24,126 @@ export default function BoardDetailPage({ params }: { params: Promise<{ slug: st
   const { t } = useI18n();
   const router = useRouter();
   const [detail, setDetail] = useState<BoardDetailResponse | null>(null);
+  const [events, setEvents] = useState<EventRecord[] | null>(null);
   const [tab, setTab] = useState<Tab>("board");
   const [report, setReport] = useState<string | null>(null);
+  const [showLog, setShowLog] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const reload = useCallback(() => {
     api.get<BoardDetailResponse>(`/api/boards/${slug}`).then(setDetail);
+    api.get<{ events: EventRecord[] }>(`/api/boards/${slug}/events`).then((r) => setEvents(r.events));
   }, [slug]);
 
   function onDeleteBoard() {
-    if (!window.confirm(t("deleteBoardConfirm"))) return;
     api.del(`/api/boards/${slug}`).then(() => router.push("/boards"));
   }
 
   useEffect(reload, [reload]);
 
-  return (
-    <AppShell activeSlug={slug}>
-      {detail && (
-        <div className="mx-auto max-w-3xl px-8 py-8">
-          <header>
-            <h1 className="text-xl font-semibold">{detail.board.title}</h1>
-            <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-              {detail.board.goal}
-            </p>
+  if (!detail) {
+    return (
+      <AppShell>
+        <div />
+      </AppShell>
+    );
+  }
 
-            <div className="mt-4 flex items-center gap-4 text-xs" style={{ color: "var(--muted)" }}>
-              <span>
-                {detail.counts.done}/{detail.counts.total}
+  const numbers = new Map(flatten(buildClientTree(detail.nodes)).map((n) => [n.node.id, n.number]));
+
+  return (
+    <AppShell
+      crumb={
+        <>
+          <span className="text-muted">/</span>
+          <span style={{ fontWeight: 500 }}>{detail.board.title}</span>
+          <span className="tag tag-outline">{detail.board.type}</span>
+          <span className="text-muted" style={{ fontVariantNumeric: "tabular-nums", fontSize: 13 }}>
+            {detail.counts.done}/{detail.counts.total}
+          </span>
+        </>
+      }
+      controls={
+        <>
+          <div className="seg">
+            <button type="button" aria-pressed={tab === "board"} onClick={() => setTab("board")} className="seg-opt">
+              {t("tabBoard")}
+            </button>
+            <button type="button" aria-pressed={tab === "matrix"} onClick={() => setTab("matrix")} className="seg-opt">
+              {t("tabMatrix")}
+            </button>
+          </div>
+          <FieldsPopover board={detail.board} slug={slug} onChanged={reload} />
+          <button type="button" onClick={() => setShowLog(true)} className="btn btn-secondary">
+            {t("log")} {events && events.length > 0 ? events.length : ""}
+          </button>
+        </>
+      }
+    >
+      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "var(--space-6) var(--space-4)" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-3)", marginBottom: "var(--space-4)" }}>
+          <button type="button" onClick={() => downloadText(`/api/boards/${slug}/markdown`, `${slug}.md`)} className="btn btn-ghost" style={{ paddingInline: 0 }}>
+            {t("downloadMarkdown")}
+          </button>
+          <button
+            type="button"
+            onClick={() => api.get<ReportResponse>(`/api/boards/${slug}/report`).then((r) => setReport(r.report.body))}
+            className="btn btn-ghost"
+            style={{ paddingInline: 0 }}
+          >
+            {t("downloadReport")}
+          </button>
+          <div style={{ marginLeft: "auto" }}>
+            {confirmingDelete ? (
+              <span style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: 12, color: "var(--color-danger)" }}>
+                {t("deleteBoardConfirm")}
+                <button type="button" onClick={onDeleteBoard} className="btn btn-danger">
+                  {t("deleteBoard")}
+                </button>
+                <button type="button" onClick={() => setConfirmingDelete(false)} className="btn btn-ghost">
+                  {t("cancel")}
+                </button>
               </span>
-              <div className="h-1.5 w-32 overflow-hidden rounded-full" style={{ background: "var(--border)" }}>
-                <div
-                  className="h-full"
-                  style={{
-                    width: `${detail.counts.total === 0 ? 0 : (detail.counts.done / detail.counts.total) * 100}%`,
-                    background: "var(--accent)",
-                  }}
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => downloadText(`/api/boards/${slug}/markdown`, `${slug}.md`)}
-                className="ml-auto underline"
-              >
-                {t("downloadMarkdown")}
-              </button>
-              <button
-                type="button"
-                onClick={() => api.get<ReportResponse>(`/api/boards/${slug}/report`).then((r) => setReport(r.report.body))}
-                className="underline"
-              >
-                {t("downloadReport")}
-              </button>
-              <button
-                type="button"
-                onClick={onDeleteBoard}
-                className="underline"
-                style={{ color: "var(--danger)" }}
-              >
+            ) : (
+              <button type="button" onClick={() => setConfirmingDelete(true)} className="btn btn-ghost" style={{ color: "var(--color-danger)" }}>
                 {t("deleteBoard")}
               </button>
-            </div>
-
-            <div
-              className="mt-3 rounded-lg border px-3 py-2 text-sm"
-              style={{ borderColor: "var(--border)", background: "var(--card)" }}
-            >
-              <span className="font-semibold" style={{ color: "var(--accent)" }}>
-                {t("nextAction")}:{" "}
-              </span>
-              {detail.nextAction ? detail.nextAction.text : `— ${t("boardComplete")}`}
-            </div>
-          </header>
-
-          <div className="mt-6 flex gap-1 border-b" style={{ borderColor: "var(--border)" }}>
-            {(["board", "matrix"] as const).map((tb) => (
-              <button
-                key={tb}
-                type="button"
-                onClick={() => setTab(tb)}
-                className="border-b-2 px-3 py-2 text-xs font-semibold"
-                style={{
-                  borderColor: tab === tb ? "var(--accent)" : "transparent",
-                  color: tab === tb ? "var(--accent)" : "var(--muted)",
-                }}
-              >
-                {tb === "board" ? t("tabBoard") : t("tabMatrix")}
-              </button>
-            ))}
-          </div>
-
-          {report && (
-            <div
-              className="mt-5 rounded-lg border p-4"
-              style={{ borderColor: "var(--border)", background: "var(--card)" }}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <pre className="flex-1 text-xs whitespace-pre-wrap">{report}</pre>
-                <button type="button" onClick={() => setReport(null)} className="text-xs" style={{ color: "var(--muted)" }}>
-                  ✕
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="mt-5">
-            {tab === "board" ? (
-              <BoardTree nodes={detail.nodes} slug={slug} onChanged={reload} />
-            ) : (
-              <MatrixView nodes={detail.nodes} slug={slug} onChanged={reload} />
             )}
           </div>
         </div>
-      )}
+
+        {report && (
+          <div className="card" style={{ marginBottom: "var(--space-4)" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--space-3)" }}>
+              <pre style={{ flex: 1, fontSize: 12, whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }}>{report}</pre>
+              <button type="button" onClick={() => setReport(null)} className="btn btn-ghost">
+                {t("close")}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: "var(--space-6)", alignItems: "flex-start" }}>
+          <NextActionAside
+            nodes={detail.nodes}
+            nextAction={detail.nextAction}
+            candidates={detail.candidates}
+            events={events}
+            slug={slug}
+            onChanged={reload}
+            onOpenLog={() => setShowLog(true)}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {tab === "board" ? (
+              <BoardTree nodes={detail.nodes} blockers={detail.blockers} visibleFields={detail.board.visibleFields} slug={slug} onChanged={reload} />
+            ) : (
+              <MatrixView nodes={detail.nodes} nextActionNodeId={detail.nextAction?.nodeId ?? null} slug={slug} onChanged={reload} />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {showLog && <EventLogDialog slug={slug} numbers={numbers} onClose={() => { setShowLog(false); reload(); }} />}
     </AppShell>
   );
 }

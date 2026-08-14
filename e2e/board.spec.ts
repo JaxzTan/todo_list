@@ -13,7 +13,6 @@ test("full flow: login, create board, add step, change status, matrix, export", 
   await page.getByRole("button", { name: "Sign in" }).click();
 
   await expect(page).toHaveURL(/\/boards/);
-  await expect(page.getByRole("main").getByText("No boards yet")).toBeVisible();
 
   await page.getByRole("button", { name: "+ New board" }).click();
   await page.getByLabel("Title").fill(boardTitle);
@@ -21,7 +20,7 @@ test("full flow: login, create board, add step, change status, matrix, export", 
   await page.getByRole("button", { name: "Save" }).click();
 
   await expect(page).toHaveURL(/\/boards\/playwright-run-/);
-  await expect(page.getByRole("heading", { name: boardTitle })).toBeVisible();
+  await expect(page.getByText(boardTitle)).toBeVisible();
   await expect(page.getByText("— board complete")).toBeVisible();
 
   await page.getByRole("button", { name: "+ Add step" }).click();
@@ -29,22 +28,25 @@ test("full flow: login, create board, add step, change status, matrix, export", 
   await page.getByPlaceholder("Add step").press("Enter");
 
   await expect(page.getByRole("button", { name: "Prove status changes work" })).toBeVisible();
-  await expect(page.locator("text=Next action:").locator("..")).toContainText(
-    "Prove status changes work",
-  );
+  // The aside's Next Action card surfaces the same step as the tree row.
+  await expect(page.locator("aside .card-title")).toHaveText("Prove status changes work");
 
-  await page.getByRole("button", { name: "Todo" }).click();
+  // Both the aside's Next Action card and the tree row show a status pill
+  // for the same node (matches the wireframe) — scope to the table so the
+  // click lands on one, not the other.
+  const table = page.getByRole("table");
+  await table.getByRole("button", { name: "Todo" }).click();
   await page.getByRole("button", { name: "Done", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Done", exact: true })).toBeVisible();
+  await expect(table.getByRole("button", { name: "Done", exact: true })).toBeVisible();
   await expect(page.getByText("1/1")).toBeVisible();
   await expect(page.getByText("— board complete")).toBeVisible();
 
-  await page.getByRole("button", { name: "4-quadrant plan" }).click();
-  await expect(page.getByText("Unplaced")).toBeVisible();
-  await page.getByRole("button", { name: "Prove status changes work" }).click();
-  await expect(page.getByText("Do now").locator("..").locator("..")).toContainText(
-    "Prove status changes work",
-  );
+  await page.getByRole("button", { name: "Matrix" }).click();
+  // No due date or priority set — lands in the default (Priority 3 / None,
+  // "—" due-window) cell rather than a dedicated "Unplaced" tray, since the
+  // wireframe's matrix has no free-standing quadrant state (design_change.md
+  // decision #2).
+  await expect(page.getByText("Prove status changes work", { exact: true })).toBeVisible();
 
   const [download] = await Promise.all([
     page.waitForEvent("download"),
@@ -62,9 +64,12 @@ test("full flow: login, create board, add step, change status, matrix, export", 
   await expect(page.getByText("Session #1")).toBeVisible();
   await expect(page.locator("pre")).toContainText("Prove status changes work");
 
-  await page.getByRole("button", { name: "☾" }).click();
-  await expect(page.locator("html")).toHaveClass(/dark/);
+  // Both header toggles show the CURRENT state as their label (matches the
+  // wireframe screenshots — "Light"/"EN" are shown while already active,
+  // not the switch target).
+  await page.getByRole("button", { name: "Light" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
-  await page.getByRole("button", { name: "中文" }).click();
-  await expect(page.getByText("三层看板")).toBeVisible();
+  await page.getByRole("button", { name: "EN", exact: true }).click();
+  await expect(page.getByText("树状图")).toBeVisible();
 });

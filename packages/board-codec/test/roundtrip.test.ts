@@ -8,7 +8,6 @@ import type {
   CanonicalBoard,
   GroupNode,
   Prio,
-  Quadrant,
   StepNode,
   StepStatus,
 } from "../src/types";
@@ -37,7 +36,6 @@ const dateArb = fc
 
 const statusArb = fc.constantFrom<StepStatus>("todo", "doing", "stuck", "done", "skipped");
 const prioArb = fc.constantFrom<Prio>("high", "med", "low");
-const quadrantArb = fc.constantFrom<Quadrant>("do_now", "schedule", "delegate", "drop");
 const numberRefArb = fc
   .array(fc.integer({ min: 1, max: 9 }), { minLength: 1, maxLength: 3 })
   .map((parts) => parts.join("."));
@@ -51,7 +49,6 @@ function stepArb(depth: number): fc.Arbitrary<StepNode> {
     due: fc.option(dateArb, { nil: undefined }),
     prio: fc.option(prioArb, { nil: undefined }),
     owner: fc.option(wordArb, { nil: undefined }),
-    quadrant: fc.option(quadrantArb, { nil: undefined }),
     children: depth > 0 ? fc.array(stepArb(depth - 1), { maxLength: 2 }) : fc.constant([]),
   });
 }

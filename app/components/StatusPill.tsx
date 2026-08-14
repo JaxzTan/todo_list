@@ -5,12 +5,12 @@ import { useI18n, type DictKey } from "@/lib/client/i18n";
 import type { StepStatus } from "@/lib/client/types";
 
 const ORDER: StepStatus[] = ["todo", "doing", "stuck", "done", "skipped"];
-const COLOR: Record<StepStatus, string> = {
-  todo: "#8a8578",
-  doing: "#2f7d5b",
-  stuck: "#b3423a",
-  done: "#4a7fc9",
-  skipped: "#b39a4a",
+const TAG_CLASS: Record<StepStatus, string> = {
+  todo: "tag-neutral",
+  doing: "tag-accent",
+  stuck: "tag-danger",
+  done: "tag-accent-2",
+  skipped: "tag-outline",
 };
 
 export function StatusPill({
@@ -46,28 +46,20 @@ export function StatusPill({
   }
 
   return (
-    <div className="relative inline-block">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
-        style={{ background: `${COLOR[status]}20`, color: COLOR[status] }}
-      >
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <button type="button" onClick={() => setOpen((v) => !v)} className={`tag ${TAG_CLASS[status]}`} style={{ cursor: "pointer", border: "none" }}>
         {t(`status_${status}` as DictKey)}
       </button>
 
       {open && !pendingStuck && (
-        <div
-          className="absolute top-full left-0 z-20 mt-1 flex flex-col rounded-lg border p-1 shadow-md"
-          style={{ background: "var(--card)", borderColor: "var(--border)" }}
-        >
+        <div className="popover" style={{ width: 160, padding: "var(--space-2)", display: "flex", flexDirection: "column", gap: 2 }}>
           {ORDER.map((s) => (
             <button
               key={s}
               type="button"
               onClick={() => pick(s)}
-              className="rounded-md px-2 py-1 text-left text-xs whitespace-nowrap hover:opacity-80"
-              style={{ color: COLOR[s] }}
+              className="btn btn-ghost"
+              style={{ justifyContent: "flex-start" }}
             >
               {t(`status_${s}` as DictKey)}
             </button>
@@ -76,43 +68,33 @@ export function StatusPill({
       )}
 
       {pendingStuck && (
-        <form
-          onSubmit={submitStuck}
-          className="absolute top-full left-0 z-20 mt-1 w-64 rounded-lg border p-3 shadow-md"
-          style={{ background: "var(--card)", borderColor: "var(--border)" }}
-        >
+        <form onSubmit={submitStuck} className="popover" style={{ width: 240 }}>
           <input
             autoFocus
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="what's blocking? (required)"
-            className="w-full rounded-md border px-2 py-1 text-xs"
-            style={{ borderColor: "var(--border)", background: "var(--card2)" }}
+            placeholder={t("whatsBlocking")}
+            className="input"
           />
           <input
             value={plan}
             onChange={(e) => setPlan(e.target.value)}
-            placeholder="unblock plan (optional)"
-            className="mt-1.5 w-full rounded-md border px-2 py-1 text-xs"
-            style={{ borderColor: "var(--border)", background: "var(--card2)" }}
+            placeholder={t("unblockPlan")}
+            className="input"
+            style={{ marginTop: "var(--space-2)" }}
           />
-          <div className="mt-2 flex justify-end gap-1.5">
+          <div className="dialog-actions">
             <button
               type="button"
               onClick={() => {
                 setPendingStuck(false);
                 setOpen(false);
               }}
-              className="rounded-md px-2 py-1 text-[11px]"
+              className="btn btn-secondary"
             >
               {t("cancel")}
             </button>
-            <button
-              type="submit"
-              disabled={!description.trim()}
-              className="rounded-md px-2 py-1 text-[11px] font-semibold disabled:opacity-50"
-              style={{ background: "var(--accent)", color: "var(--accent-fg)" }}
-            >
+            <button type="submit" disabled={!description.trim()} className="btn btn-primary">
               {t("save")}
             </button>
           </div>

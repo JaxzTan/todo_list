@@ -3,7 +3,6 @@ export const FORMAT_VERSION = 1;
 export type BoardType = "project" | "day";
 export type StepStatus = "todo" | "doing" | "stuck" | "done" | "skipped";
 export type Prio = "high" | "med" | "low";
-export type Quadrant = "do_now" | "schedule" | "delegate" | "drop";
 export type ActiveColumn = "due" | "prio" | "owner";
 export type ScopeChangeKind = "ADD" | "CUT" | "REWORD";
 
@@ -21,7 +20,6 @@ export interface StepNode {
   due?: string;
   prio?: Prio;
   owner?: string;
-  quadrant?: Quadrant;
   children: StepNode[];
 }
 

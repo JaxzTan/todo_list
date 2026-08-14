@@ -13,6 +13,12 @@ export const createBoardSchema = z.object({
 });
 export type CreateBoardInput = z.infer<typeof createBoardSchema>;
 
+const VISIBLE_FIELD = z.enum(["due", "prio", "owner", "notes", "blocker"]);
+export const updateBoardSchema = z.object({
+  visibleFields: z.array(VISIBLE_FIELD).optional(),
+});
+export type UpdateBoardInput = z.infer<typeof updateBoardSchema>;
+
 export const addNodeSchema = z.object({
   parentId: z.string().nullable().optional(),
   kind: z.enum(["GROUP", "STEP"]),
@@ -35,7 +41,6 @@ export const patchNodeSchema = z
     due: z.string().regex(DATE_ONLY).nullable().optional(),
     prio: z.enum(["high", "med", "low"]).nullable().optional(),
     owner: z.string().max(100).nullable().optional(),
-    quadrant: z.enum(["do_now", "schedule", "delegate", "drop"]).nullable().optional(),
     doneCondition: z.string().max(1000).nullable().optional(),
     archived: z.boolean().optional(),
     blocker: blockerInputSchema.optional(),

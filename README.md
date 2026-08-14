@@ -1,60 +1,155 @@
+<div align="center">
+
 # Exec Board
 
-A persistent, three-layer task board (project → task → subtask) driven from ordinary conversation with a Claude skill, backed by a Next.js web app and PostgreSQL.
+**A persistent three-layer task board (project → task → subtask), driven from ordinary conversation with a Claude skill or a browser.**
 
+[Documentation](./docs) · [Architecture](./architecture.md) · [Endpoint reference](./docs/endpoint.md) · [Report a bug](https://github.com/JaxzTan/todo_list/issues/new)
 
-<!-- TODO: add a demo.gif or screenshot of the board view under docs/ and link it here -->
+</div>
+
+<!-- TODO: add a demo.gif or screenshot of the board view under docs/assets/ and link it here -->
+
+---
+
+## Table of Contents
+
+- [About](#about)
+- [Features](#features)
+- [Tech Stack](#tech-stack)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Project Structure](#project-structure)
+- [Development](#development)
+- [Testing](#testing)
+- [API](#api)
+- [Deployment](#deployment)
+- [Troubleshooting](#troubleshooting)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## About
+
+Exec Board is a task tracker built around one idea: the plan and the actual status shouldn't be two things that drift apart. It's driven either from ordinary conversation — a Claude skill infers status changes (done, blocked, stuck, scope cuts) from what you say and writes them silently — or from a normal web UI, and both stay in sync because they operate on the same API and the same event log.
+
+**Why it exists:** most task trackers require you to context-switch out of the conversation to update them, so they fall out of date. This one is written to from inside the conversation itself.
+
+**Status:** Active development · **Current version:** 0.1.0
+
+---
 
 ## Features
-- Single API backs two clients — a Claude skill (in-chat) and a Next.js web app — so a plan stated in chat and its status changes stay in sync automatically
-- Three-layer node tree (project/phase → task → subtask) with a server-derived "next action," never stored client-side
-- Append-only event log (`Event`) is the source of truth; every mutation is reversible via compensating revert, not deletion
-- Postgres row-level security, keyed per-transaction, isolates each user's boards at the database layer
-- Lossless markdown import/export (`board-codec`) so a board is portable as a single `.md` file
-- One personal-access-token per user, argon2-hashed, bearer auth on every route but `/api/health`
+
+- **Two clients, one source of truth** — a Claude skill (in-chat) and a Next.js web app both operate on the same board API, so a plan stated in chat and its status changes stay in sync automatically
+- **Three-layer node tree** (project/phase → task → subtask) with a server-derived "next action" — never stored client-side, always recomputed
+- **Append-only event log** (`Event`) is the source of truth; every mutation is reversible via a compensating revert, never a deletion
+- **Postgres row-level security**, keyed per-transaction, isolates each user's boards at the database layer — not just at the query layer
+- **Lossless markdown import/export** (`board-codec`) so a board is portable as a single `.md` file
+- **Two independent login methods** — a personal access token (PAT) or a username/password — either one is sufficient; both resolve to the same bearer-token auth on every route but `/api/health`
+
+**Not included, by design:**
+- No self-serve signup — accounts, PATs, and passwords are all issued via operator-run CLI scripts (`scripts/issue-token.mts`, `scripts/set-password.mts`), not a public form
+- No hosted deployment — this runs on a local machine behind an ngrok tunnel; see [Deployment](#deployment)
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Why |
+|---|---|---|
+| Full stack | Next.js 16 (App Router), React 19, TypeScript | One framework, one deployable — doesn't justify a split frontend/backend at this scale |
+| Styling | TailwindCSS v4 | Board view is mostly tables and status pills |
+| Shared format | `board-codec` (TypeScript workspace package) | One grammar owner for markdown ⇄ JSON prevents skill/app drift |
+| Database | PostgreSQL 17 + Prisma 7 (`@prisma/adapter-pg`) | Relational fits steps/notes/blockers cleanly |
+| Isolation | Postgres row-level security (RLS) | Query-level `WHERE ownerId = ?` scoping will eventually be forgotten once |
+| Auth | Argon2-hashed PAT or password (`@node-rs/argon2`), bearer token | Two credential paths, one downstream auth check |
+| DB runtime | Docker Compose, named volume | Reproducible, disposable, no host Postgres install |
+| Exposure | ngrok tunnel | Zero-infra way to reach a local app from the Claude skill sandbox |
+| CI | GitHub Actions (`.github/workflows/ci.yml`) | Typecheck, unit tests, Playwright e2e, Prisma migration-drift check |
+
+---
 
 ## Quick Start
+
+### Prerequisites
+
+| Requirement | Version | Check |
+|---|---|---|
+| Node.js | 24 | `node --version` |
+| Docker + Docker Compose | any recent | `docker compose version` |
+| `make` | any | `make --version` |
+| `ngrok` | any (only to expose the app to the Claude skill sandbox) | `ngrok --version` |
+
+### Install & run
+
 ```bash
+# 1. Clone
 git clone git@github.com:JaxzTan/todo_list.git
 cd todo_list
 npm install
 
-# create .env with the variables listed under Configuration below
+# 2. Configure — create .env with the variables listed under Configuration below
 
-npm run db:up                          # start Postgres via Docker Compose
+# 3. Start Postgres, apply the schema, sync the RLS app role's password
+npm run db:up
 npm run db:migrate && npm run db:generate
-bash scripts/setup-db-role.sh          # sync the RLS-scoped app role's password from .env
-node --env-file=.env scripts/issue-token.mts <handle>   # prints a PAT once — save it
+bash scripts/setup-db-role.sh
 
+# 4. Create your first user — either or both:
+node --env-file=.env scripts/issue-token.mts <handle>            # prints a PAT once — save it
+node --env-file=.env scripts/set-password.mts <handle> <password> # sets a password login instead/as well
+
+# 5. Run
 npm run dev
 ```
-Open http://localhost:3300
+
+Open **http://localhost:3300**.
 
 Alternatively, run the full stack (app + Postgres) via Docker Compose:
+
 ```bash
 make up      # build + start, prints the web URL
 make logs    # follow logs
 make down    # stop and remove containers
 ```
 
-## Requirements
-Node.js 24, Docker + Docker Compose (for local Postgres), `ngrok` (only to expose the app to the Claude skill sandbox)
+### Teardown
+
+```bash
+make down    # stop containers
+make clean   # stop + remove volumes (destroys local data — see Troubleshooting)
+```
+
+---
 
 ## Configuration
-| Var | Default | Description |
-|---|---|---|
-| `DATABASE_URL` | — | Postgres connection string, superuser role (migrations, Prisma Studio) |
-| `APP_DATABASE_URL` | — | Postgres connection string, RLS-scoped `exec_board_app` role (app runtime) |
-| `DB_USER` / `DB_PASSWORD` / `DB_NAME` / `DB_PORT` / `DB_HOST` | — | Local Postgres container credentials/connection, used by `docker-compose.yml` |
-| `APP_DB_PASSWORD` | — | Password synced into the `exec_board_app` role by `scripts/setup-db-role.sh` |
-| `NGROK` | — | ngrok auth token, used by `scripts/start-tunnel.sh` |
-| `PAT_<HANDLE>` (e.g. `PAT_JAXZ`) | — | Issued personal access token per user, read by client scripts |
-| `EXEC_BOARD_BASE_URL` | — | Base URL the skill client calls; falls back to local file mode if unreachable |
-| `EXEC_BOARD_TOKEN` | — | Bearer token the skill client sends as `Authorization: Bearer <token>` |
-| `EXEC_BOARD_LOCAL_DIR` | `.exec-board/` | Local fallback directory the skill client writes to when the API is unreachable |
+
+| Variable | Required | Default | Description |
+|---|:--:|---|---|
+| `DATABASE_URL` | **yes** | — | Postgres connection string, superuser role (migrations, Prisma Studio) |
+| `APP_DATABASE_URL` | **yes** | — | Postgres connection string, RLS-scoped `exec_board_app` role (app runtime) |
+| `DB_USER` / `DB_PASSWORD` / `DB_NAME` / `DB_PORT` / `DB_HOST` | **yes** | — | Local Postgres container credentials/connection, used by `docker-compose.yml` |
+| `APP_DB_PASSWORD` | **yes** | — | 🔒 Synced into the `exec_board_app` role by `scripts/setup-db-role.sh` |
+| `NGROK` | no | — | 🔒 ngrok auth token, used by `scripts/start-tunnel.sh` |
+| `PAT_<HANDLE>` (e.g. `PAT_JAXZ`) | no | — | 🔒 Issued personal access token per user, read by client scripts |
+| `EXEC_BOARD_BASE_URL` | no | `http://localhost:3300` | Base URL the skill client calls; falls back to local file mode if unreachable |
+| `EXEC_BOARD_TOKEN` | no | — | 🔒 Bearer token the skill client sends as `Authorization: Bearer <token>` |
+| `EXEC_BOARD_LOCAL_DIR` | no | `.exec-board/` | Local fallback directory the skill client writes to when the API is unreachable |
+| `EXEC_BOARD_BACKUP_DIR` | no | `backups/` | Where `scripts/backup-db.sh` writes `.dump` files |
+| `EXEC_BOARD_BACKUP_RETENTION_DAYS` | no | `14` | How long `scripts/backup-db.sh` keeps old backups |
+
+🔒 = secret. Never commit. `.env` is gitignored.
+
+---
 
 ## Usage
-Every route but `GET /api/health` requires a bearer token issued by `scripts/issue-token.mts`:
+
+Every route but `GET /api/health` and `POST /api/auth/login` requires a bearer token — either a PAT or a session token from a password login:
+
 ```bash
 curl http://localhost:3300/api/boards/my-project \
   -H "Authorization: Bearer $EXEC_BOARD_TOKEN"
@@ -62,38 +157,182 @@ curl http://localhost:3300/api/boards/my-project \
 ```json
 {"board":{"slug":"my-project","title":"..."},"nodes":[...],"nextAction":{"nodeId":"...","number":"1.2","text":"..."},"counts":{"done":3,"total":9}}
 ```
-Full endpoint reference: `docs/endpoint.md`.
 
-## Architecture
-Two clients — a Claude skill and a Next.js web app — operate on one board format through a shared `board-codec` package, backed by a single PostgreSQL database behind a Next.js API. See `architecture.md` for the full system design (data model, tenancy, security model, testing strategy) and `docs/3 Layers Rule PRD (1).md` / `docs/3 Layers Rule PRD (3).md` for the PRD/TRD.
+Logging in with a password instead of a PAT:
 
-```mermaid
-flowchart TD
-    subgraph clients [Clients]
-      A[Claude skill]
-      B[Web app]
-    end
-    C[board-codec]
-    D[Board API]
-    G[(PostgreSQL)]
-
-    A --> C --> D --> G
-    B --> C
-    B --> D
+```bash
+curl -X POST http://localhost:3300/api/auth/login \
+  -H "content-type: application/json" \
+  -d '{"handle":"jaxz","password":"..."}'
+# → {"token":"ebsess_..."} — use exactly like a PAT above
 ```
+
+Full endpoint reference: [`docs/endpoint.md`](./docs/endpoint.md).
+
+---
+
+## Project Structure
+
+```
+.
+├── app/                 # Next.js App Router — pages + API route handlers
+│   ├── api/             #   REST endpoints (boards, nodes, events, auth)
+│   ├── boards/          #   Board list + board detail pages
+│   ├── login/           #   Login page (token or username/password tabs)
+│   └── components/      #   Client components (BoardTree, MatrixView, dialogs)
+├── lib/
+│   ├── auth/            # PAT + password verification, tenant resolution
+│   ├── boards/          # Board service layer — mutations, events, next-action
+│   ├── client/           # Browser-side API client, auth/i18n/theme contexts
+│   ├── api/              # Shared route-handler helpers (error mapping, JSON parsing)
+│   └── db.ts              # Prisma client + RLS transaction wrapper
+├── packages/board-codec/ # Sole owner of the markdown ⇄ JSON grammar
+├── prisma/                # Schema + migrations
+├── scripts/                # Operator CLIs (issue-token, set-password, backup, tunnel)
+├── e2e/                    # Playwright end-to-end tests
+├── docs/
+│   ├── endpoint.md         # Full API reference
+│   ├── list.md              # Build history and decisions made along the way
+│   └── dual-login-plan.md   # Design doc for the PAT/password dual-login feature
+├── .claude/skills/exec-board/ # The Claude skill definition (SKILL.md)
+├── docker-compose.yml
+├── Dockerfile
+├── Makefile
+└── architecture.md          # Full system design — see below
+```
+
+---
 
 ## Development
+
+| Command | Does |
+|---|---|
+| `npm run dev` | Next.js dev server, http://localhost:3300 |
+| `npm test` | Vitest (root + `board-codec` workspace) |
+| `npm run e2e` | Playwright end-to-end tests |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm run db:up` / `db:down` | Start/stop local Postgres via Docker Compose |
+| `npm run db:migrate` / `db:generate` | Apply Prisma migrations / regenerate the client |
+| `npm run db:backup` | Run `scripts/backup-db.sh` on demand |
+| `npm run tunnel:start` / `tunnel:stop` | ngrok tunnel for the Claude skill sandbox |
+| `make up` / `make down` / `make logs` | Full stack via Docker Compose |
+| `make dev` | Full stack with live source sync + hot reload (`docker compose watch`) |
+| `make tunnel` | `make dev` plus ngrok attached in the foreground |
+
+### Conventions
+
+Personal project, solo-maintained — no formal PR review process. Commit messages follow a loose Conventional Commits style (`feat:`, `fix:`, `perf:`, `refactor:`, `chore:`) without enforced scopes.
+
+### Architecture
+
+Design rationale, boundaries, and data flow live in **[architecture.md](./architecture.md)** — read it before a non-trivial change.
+
+---
+
+## Testing
+
 ```bash
-npm run dev         # Next.js dev server, http://localhost:3300
-npm test             # Vitest (root + workspace packages)
-npm run e2e          # Playwright end-to-end tests
-npm run lint          # ESLint
-npm run typecheck     # tsc --noEmit
+npm test          # Vitest — unit + real-Postgres integration tests
+npm run e2e        # Playwright — full browser flows
 ```
-CI (`.github/workflows/ci.yml`) runs typecheck+lint, unit tests, Playwright e2e, and a Prisma migration drift check on every PR and push to `main`.
+
+| Layer | Tool | Scope | Where |
+|---|---|---|---|
+| Unit / integration | Vitest | Service logic + real-Postgres RLS/tenancy tests | `lib/**/*.test.ts`, `app/**/*.test.ts` |
+| Format round-trip | Vitest + fast-check | `board-codec`'s markdown ⇄ JSON grammar, property + golden-file tests | `packages/board-codec/test/` |
+| E2E | Playwright | Full browser flow: login → create board → add step → status change → export | `e2e/board.spec.ts` |
+
+CI (`.github/workflows/ci.yml`) runs typecheck+lint, unit tests, Playwright e2e, and a Prisma migration-drift check on every PR and push to `main`.
+
+---
+
+## API
+
+Base URL: `http://localhost:3300/api` · Auth: `Authorization: Bearer <PAT or session token>`
+
+| Group | Purpose |
+|---|---|
+| `/auth/login` | Password login → session token |
+| `/boards` | List / create boards |
+| `/boards/:slug`, `/boards/:slug/nodes*` | Board detail, node CRUD, notes |
+| `/boards/:slug/events*` | Event log, compensating revert |
+| `/boards/:slug/sessions`, `/report`, `/markdown` | Work sessions, report generation, markdown export |
+| `/boards/:slug/rebuild` | Replay the event log and repair drifted status |
+| `/boards/import` | Import a markdown board |
+
+Full reference, request/response shapes, and error codes: **[docs/endpoint.md](./docs/endpoint.md)**.
+
+---
+
+## Deployment
+
+There is no hosted deployment — this is a personal, single-machine tool. The real "deployment" is:
+
+```bash
+make up             # app + Postgres, both in Docker
+npm run tunnel:start # ngrok tunnel, so the Claude skill sandbox can reach it
+```
+
+Full topology and the reasoning behind "no hosted environment" → [architecture.md §15](./architecture.md#15-deployment--environments).
+
+---
+
+## Troubleshooting
+
+<details>
+<summary>Postgres port already in use</summary>
+
+Set a different `DB_PORT` in `.env`, or stop whatever's already bound to it.
+</details>
+
+<details>
+<summary><code>prisma</code> commands hang with no output</summary>
+
+This has been observed to hang indefinitely (even `prisma --version`) on some host Node installs, unrelated to schema changes. Workaround: run it inside the `web` container instead — `docker compose exec web npx prisma <command>` — which has been reliable throughout development. If you edit `prisma/schema.prisma` on the host, `docker cp` it into the container first.
+</details>
+
+<details>
+<summary>Daily backup cron/launchd job fails with "Operation not permitted"</summary>
+
+On macOS, this project's directory lives under `~/Documents`, which is TCC-protected — *any* non-interactive process (cron, launchd, anything not explicitly granted access) gets "Operation not permitted" touching it, regardless of which scheduler you use. Fix: System Settings → Privacy & Security → Full Disk Access → add `/bin/bash`.
+</details>
+
+<details>
+<summary><code>make clean</code> wiped my data</summary>
+
+`docker compose down -v --rmi local` removes the named Postgres volume — migrations, RLS setup, and every user/board are gone. There's no automatic offsite backup; run `npm run db:backup` first if you have data worth keeping (see [Configuration](#configuration) for where it's written).
+</details>
+
+<details>
+<summary>Migrations fail after pulling <code>main</code></summary>
+
+```bash
+npm run db:migrate
+```
+If the schema has diverged locally and that doesn't resolve cleanly: `make clean && make up` (destroys local data — back up first).
+</details>
+
+---
+
+## Roadmap
+
+- [x] Board API, three-layer tree, event log, next-action resolver (see `docs/list.md` for the full phase-by-phase history)
+- [x] Postgres RLS tenancy
+- [x] Markdown import/export via `board-codec`
+- [x] Dual login — PAT or username/password
+- [ ] Scheduled offsite backups (script exists; scheduling needs a one-time macOS Full Disk Access grant — see Troubleshooting)
+- [ ] Reserved ngrok domain (free-tier hostname currently rotates on restart)
+- [ ] Decide the fate of `Board.parallelAllowed` (the "two `doing`" escape hatch — currently unused, pending a decision to drop it)
+
+---
 
 ## Contributing
-Personal project, not currently accepting external contributions. <!-- TODO: add CONTRIBUTING.md if that changes -->
+
+Personal project, not currently accepting external contributions.
+
+---
 
 ## License
+
 Dual-licensed under either [MIT](LICENSE-MIT) or [Apache License, Version 2.0](LICENSE-APACHE), at your option.

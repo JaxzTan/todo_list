@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../db";
-import { generateToken, hashToken } from "../auth/tokens";
+import { generateSessionToken, generateToken, hashToken } from "../auth/tokens";
 import { extractBearerToken, requireUser, resolveUser, UnauthorizedError } from "../auth/tenant";
+import { loginWithPassword } from "../auth/service";
 
 let userId: string;
 let token: string;
+
+let passwordUserId: string;
+const PASSWORD_HANDLE = `tenant-test-pw-${randomUUID()}`;
+const PASSWORD = "correct horse battery staple";
 
 beforeAll(async () => {
   token = generateToken();
@@ -13,10 +18,20 @@ beforeAll(async () => {
     data: { handle: `tenant-test-${randomUUID()}`, tokenHash: await hashToken(token) },
   });
   userId = user.id;
+
+  const passwordUser = await prisma.user.create({
+    data: {
+      handle: PASSWORD_HANDLE,
+      tokenHash: await hashToken(generateToken()),
+      passwordHash: await hashToken(PASSWORD),
+    },
+  });
+  passwordUserId = passwordUser.id;
 });
 
 afterAll(async () => {
-  await prisma.user.delete({ where: { id: userId } });
+  await prisma.authSession.deleteMany({ where: { userId: { in: [userId, passwordUserId] } } });
+  await prisma.user.deleteMany({ where: { id: { in: [userId, passwordUserId] } } });
   await prisma.$disconnect();
 });
 
@@ -64,5 +79,46 @@ describe("resolveUser / requireUser (TR-14)", () => {
   it("requireUser resolves for a valid token", async () => {
     const user = await requireUser(requestWith(`Bearer ${token}`));
     expect(user.id).toBe(userId);
+  });
+});
+
+describe("password login + AuthSession resolution", () => {
+  it("loginWithPassword mints a session token that resolveUser accepts", async () => {
+    const sessionToken = await loginWithPassword(PASSWORD_HANDLE, PASSWORD);
+    expect(sessionToken).not.toBeNull();
+    const user = await resolveUser(requestWith(`Bearer ${sessionToken}`));
+    expect(user?.id).toBe(passwordUserId);
+  });
+
+  it("rejects the wrong password", async () => {
+    expect(await loginWithPassword(PASSWORD_HANDLE, "wrong password")).toBeNull();
+  });
+
+  it("rejects an unknown handle", async () => {
+    expect(await loginWithPassword(`no-such-user-${randomUUID()}`, PASSWORD)).toBeNull();
+  });
+
+  it("rejects a user that has no password set", async () => {
+    const patOnlyUser = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    expect(await loginWithPassword(patOnlyUser.handle, "anything")).toBeNull();
+  });
+
+  it("resolveUser rejects an expired session token", async () => {
+    const expiredToken = generateSessionToken();
+    await prisma.authSession.create({
+      data: {
+        userId: passwordUserId,
+        tokenHash: await hashToken(expiredToken),
+        expiresAt: new Date(Date.now() - 1000),
+      },
+    });
+    expect(await resolveUser(requestWith(`Bearer ${expiredToken}`))).toBeNull();
+  });
+
+  it("a fresh login replaces the previous session rather than accumulating rows", async () => {
+    const first = await loginWithPassword(PASSWORD_HANDLE, PASSWORD);
+    const second = await loginWithPassword(PASSWORD_HANDLE, PASSWORD);
+    expect(await resolveUser(requestWith(`Bearer ${first}`))).toBeNull();
+    expect((await resolveUser(requestWith(`Bearer ${second}`)))?.id).toBe(passwordUserId);
   });
 });
