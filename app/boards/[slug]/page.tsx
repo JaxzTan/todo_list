@@ -10,6 +10,7 @@ import { DayView } from "@/app/components/DayView";
 import { NextActionAside } from "@/app/components/NextActionAside";
 import { FieldsPopover } from "@/app/components/FieldsPopover";
 import { EventLogDialog } from "@/app/components/EventLogDialog";
+import { NodeDetailDrawer } from "@/app/components/NodeDetailDrawer";
 import { api, downloadText, setToken } from "@/lib/client/api";
 import { isAuthError } from "@/lib/client/auth";
 import { useI18n } from "@/lib/client/i18n";
@@ -33,6 +34,7 @@ export default function BoardDetailPage({ params }: { params: Promise<{ slug: st
   const [mainView, setMainView] = useState<MainView>("tasks");
   const [report, setReport] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const onAuthError = useCallback(
@@ -162,19 +164,33 @@ export default function BoardDetailPage({ params }: { params: Promise<{ slug: st
           />
           <div style={{ flex: 1, minWidth: 0 }}>
             {mainView === "day" ? (
-              <DayView nodes={detail.nodes} numbers={numbers} slug={slug} onChanged={reload} />
+              <DayView nodes={detail.nodes} numbers={numbers} slug={slug} onChanged={reload} onSelect={setSelectedNodeId} />
             ) : tab === "board" ? (
-              <BoardTree nodes={detail.nodes} blockers={detail.blockers} visibleFields={detail.board.visibleFields} slug={slug} onChanged={reload} />
+              <BoardTree nodes={detail.nodes} blockers={detail.blockers} visibleFields={detail.board.visibleFields} slug={slug} onChanged={reload} onSelect={setSelectedNodeId} />
             ) : tab === "matrix" ? (
-              <MatrixView nodes={detail.nodes} nextActionNodeId={detail.nextAction?.nodeId ?? null} slug={slug} onChanged={reload} />
+              <MatrixView nodes={detail.nodes} nextActionNodeId={detail.nextAction?.nodeId ?? null} slug={slug} onChanged={reload} onSelect={setSelectedNodeId} />
             ) : (
-              <QuadrantsView nodes={detail.nodes} nextActionNodeId={detail.nextAction?.nodeId ?? null} slug={slug} onChanged={reload} />
+              <QuadrantsView nodes={detail.nodes} nextActionNodeId={detail.nextAction?.nodeId ?? null} slug={slug} onChanged={reload} onSelect={setSelectedNodeId} />
             )}
           </div>
         </div>
       </div>
 
       {showLog && <EventLogDialog slug={slug} numbers={numbers} onClose={() => { setShowLog(false); reload(); }} />}
+
+      {selectedNodeId && (
+        <NodeDetailDrawer
+          nodeId={selectedNodeId}
+          nodes={detail.nodes}
+          numbers={numbers}
+          events={events ?? []}
+          blockers={detail.blockers}
+          slug={slug}
+          onClose={() => setSelectedNodeId(null)}
+          onChanged={reload}
+          onSelectNode={setSelectedNodeId}
+        />
+      )}
     </AppShell>
   );
 }

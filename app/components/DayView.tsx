@@ -32,11 +32,13 @@ export function DayView({
   numbers,
   slug,
   onChanged,
+  onSelect,
 }: {
   nodes: NodeRecord[];
   numbers: Map<string, string>;
   slug: string;
   onChanged: () => void;
+  onSelect: (nodeId: string) => void;
 }) {
   const { t } = useI18n();
   const [selectedDate, setSelectedDate] = useState(() => isoDate(new Date()));
@@ -161,6 +163,7 @@ export function DayView({
                           <div
                             key={n.id}
                             {...cardDragProps(n.id)}
+                            onClick={() => onSelect(n.id)}
                             className="card"
                             style={{ cursor: "grab", padding: "var(--space-2)", gap: 2, opacity: draggingId === n.id ? 0.4 : 1 }}
                           >
@@ -186,6 +189,7 @@ export function DayView({
               <div
                 key={n.id}
                 {...cardDragProps(n.id)}
+                onClick={() => onSelect(n.id)}
                 className="card"
                 style={{ cursor: "grab", padding: "var(--space-2)", gap: 2, opacity: draggingId === n.id ? 0.4 : 1 }}
               >

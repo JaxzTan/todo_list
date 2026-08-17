@@ -103,6 +103,7 @@ function Rows({
   blockerByNode,
   onStart,
   onChanged,
+  onSelect,
   reorderable = false,
   underStep = false,
 }: {
@@ -114,6 +115,7 @@ function Rows({
   blockerByNode: Map<string, string>;
   onStart: (nodeId: string) => void;
   onChanged: () => void;
+  onSelect: (nodeId: string) => void;
   // Drag-to-reorder among siblings — only true for a STEP's own children
   // (layer-3 subtasks), per the user's ask; top-level phases/tasks keep
   // their fixed creation order.
@@ -182,7 +184,10 @@ function Rows({
                     {done.done}/{done.total}
                   </span>
                 </td>
-                <td style={{ textAlign: "right" }}>
+                <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                  <button type="button" title={t("details")} onClick={() => onSelect(node.id)} className="btn btn-ghost" style={{ padding: "0 4px" }}>
+                    ⤢
+                  </button>
                   {cuttingId === node.id ? (
                     <ReasonPrompt
                       placeholder={t("deletePhasePrompt")}
@@ -208,6 +213,7 @@ function Rows({
                 blockerByNode={blockerByNode}
                 onStart={onStart}
                 onChanged={onChanged}
+                onSelect={onSelect}
                 underStep={false}
               />
               <tr>
@@ -256,6 +262,9 @@ function Rows({
                     {t("start")}
                   </button>
                 )}
+                <button type="button" title={t("details")} onClick={() => onSelect(node.id)} className="btn btn-ghost" style={{ padding: "0 4px" }}>
+                  ⤢
+                </button>
                 <AttrEditor node={node} slug={slug} onChanged={onChanged} />
                 {cuttingId === node.id ? (
                   <ReasonPrompt
@@ -291,6 +300,7 @@ function Rows({
                 blockerByNode={blockerByNode}
                 onStart={onStart}
                 onChanged={onChanged}
+                onSelect={onSelect}
                 reorderable
                 underStep
               />
@@ -354,12 +364,14 @@ export function BoardTree({
   visibleFields,
   slug,
   onChanged,
+  onSelect,
 }: {
   nodes: NodeRecord[];
   blockers: { nodeId: string; description: string }[];
   visibleFields: string[];
   slug: string;
   onChanged: () => void;
+  onSelect: (nodeId: string) => void;
 }) {
   const { t } = useI18n();
   const tree = buildClientTree(nodes);
@@ -414,6 +426,7 @@ export function BoardTree({
               blockerByNode={blockerByNode}
               onStart={onStart}
               onChanged={onChanged}
+              onSelect={onSelect}
             />
           </tbody>
         </table>

@@ -12,11 +12,13 @@ export function QuadrantsView({
   nextActionNodeId,
   slug,
   onChanged,
+  onSelect,
 }: {
   nodes: NodeRecord[];
   nextActionNodeId: string | null;
   slug: string;
   onChanged: () => void;
+  onSelect: (nodeId: string) => void;
 }) {
   const { t } = useI18n();
   const steps = nodes.filter((n) => n.kind === "STEP" && !n.archivedAt);
@@ -85,6 +87,7 @@ export function QuadrantsView({
                         setDraggingId(null);
                         setOverQuadrant(null);
                       }}
+                      onClick={() => onSelect(n.id)}
                       className="card"
                       style={{
                         cursor: "grab",
