@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "dev": "next dev -p 3300",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start -p 3300",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
