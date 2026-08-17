@@ -7,8 +7,8 @@ import type { BoardSummary } from "./types";
 
 interface AuthContextValue {
   status: "checking" | "authed" | "anon";
-  login: (token: string) => Promise<boolean>;
-  loginWithPassword: (handle: string, password: string) => Promise<boolean>;
+  login: (token: string, persist?: boolean) => Promise<boolean>;
+  loginWithPassword: (handle: string, password: string, persist?: boolean) => Promise<boolean>;
   logout: () => void;
 }
 
@@ -31,8 +31,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     resolved.then(setStatus);
   }, []);
 
-  const login = async (token: string) => {
-    setToken(token);
+  const login = async (token: string, persist = true) => {
+    setToken(token, persist);
     try {
       await api.get<{ boards: BoardSummary[] }>("/api/boards");
       setStatus("authed");
@@ -45,10 +45,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const loginWithPassword = async (handle: string, password: string) => {
+  const loginWithPassword = async (handle: string, password: string, persist = true) => {
     try {
       const { token } = await api.post<{ token: string }>("/api/auth/login", { handle, password });
-      setToken(token);
+      setToken(token, persist);
       setStatus("authed");
       return true;
     } catch (err) {
@@ -75,6 +75,11 @@ export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
+}
+
+/** True for a 401 from the API — token missing, expired, or revoked. */
+export function isAuthError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 401;
 }
 
 /** Redirects to /login as soon as we know there's no valid session. */

@@ -219,6 +219,18 @@ export async function patchNode(
         attrData.owner = input.owner;
         if (input.owner) newActiveColumns.add(ACTIVE_COLUMN_BY_FIELD.owner);
       }
+      if (input.quadrant !== undefined) {
+        attrChanges.quadrant = { from: node.quadrant, to: input.quadrant };
+        attrData.quadrant = input.quadrant;
+      }
+      if (input.scheduledAt !== undefined) {
+        const to = input.scheduledAt ? new Date(input.scheduledAt) : null;
+        attrChanges.scheduledAt = {
+          from: node.scheduledAt ? node.scheduledAt.toISOString() : null,
+          to: to ? to.toISOString() : null,
+        };
+        attrData.scheduledAt = to;
+      }
       if (input.doneCondition !== undefined) {
         attrChanges.doneCondition = { from: node.doneCondition, to: input.doneCondition };
         attrData.doneCondition = input.doneCondition;
@@ -235,6 +247,26 @@ export async function patchNode(
           source,
           ambiguous,
         });
+      }
+
+      // Drag-to-reorder: renumber the whole sibling group (same parentId) so
+      // `position` stays a dense, gap-free sequence — matching how addNode
+      // always appends at `last.position + 1`. Not event-logged: position is
+      // display order, not a tracked attribute (same treatment as it gets on
+      // creation).
+      if (input.position !== undefined) {
+        const siblings = await tx.node.findMany({
+          where: { boardId: board.id, parentId: node.parentId, archivedAt: null },
+          orderBy: { position: "asc" },
+        });
+        const withoutNode = siblings.filter((s) => s.id !== node.id);
+        const targetIndex = Math.max(0, Math.min(input.position, withoutNode.length));
+        withoutNode.splice(targetIndex, 0, node);
+        await Promise.all(
+          withoutNode.map((s, i) =>
+            s.position === i + 1 ? Promise.resolve() : tx.node.update({ where: { id: s.id }, data: { position: i + 1 } }),
+          ),
+        );
       }
 
       // Cut / restore (TR-10: cutting is a scope change; restoring isn't).

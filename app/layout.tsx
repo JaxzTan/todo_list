@@ -5,6 +5,7 @@ import { Providers } from "./providers";
 export const metadata: Metadata = {
   title: "Exec Board",
   description: "Solo-builder task board — projects, tasks, subtasks, one next action.",
+  icons: { icon: "/logo.png" },
 };
 
 const THEME_INIT_SCRIPT = `

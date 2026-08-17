@@ -30,6 +30,13 @@ enum Prio {
   low
 }
 
+enum Quadrant {
+  do_now
+  schedule
+  delegate
+  drop
+}
+
 enum EventSource {
   INFERRED
   EXPLICIT
@@ -118,6 +125,8 @@ model Node {
   due           DateTime?
   prio          Prio?
   owner         String?
+  quadrant      Quadrant?
+  scheduledAt   DateTime?
   archivedAt    DateTime?
   createdAt     DateTime   @default(now())
 

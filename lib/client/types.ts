@@ -1,6 +1,7 @@
 export type StepStatus = "todo" | "doing" | "stuck" | "done" | "skipped";
 export type Prio = "high" | "med" | "low";
 export type NodeKind = "GROUP" | "STEP";
+export type Quadrant = "do_now" | "schedule" | "delegate" | "drop";
 
 // The default set matches the wireframe's Fields popover ("Defaults on:
 // due, prio, blocker") and is what a board gets on creation.
@@ -18,6 +19,10 @@ export interface BoardSummary {
   visibleFields: string[];
   createdAt: string;
   updatedAt: string;
+  // Boards-index list rows (Nocturne wireframe "Your boards" cards) — see
+  // lib/boards/service.ts listBoards.
+  counts: { done: number; total: number };
+  doing: { number: string; title: string } | null;
 }
 
 export interface NodeRecord {
@@ -33,6 +38,8 @@ export interface NodeRecord {
   due: string | null;
   prio: Prio | null;
   owner: string | null;
+  quadrant: Quadrant | null;
+  scheduledAt: string | null;
   archivedAt: string | null;
   createdAt: string;
 }

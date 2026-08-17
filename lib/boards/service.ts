@@ -15,10 +15,33 @@ export async function findBoardOrThrow(
   return board;
 }
 
-export function listBoards(userId: string) {
-  return withTenant(userId, (tx) =>
-    tx.board.findMany({ where: { ownerId: userId }, orderBy: { updatedAt: "desc" } }),
-  );
+// Per-board progress for the boards-index list rows (Nocturne wireframe:
+// "3 of 11 done · doing 2.3" + a progress bar). Numbering a board's doing
+// node needs its full node list to compute the tree number, so this is one
+// query per board rather than a single aggregate — fine at personal-tool
+// scale (a handful of boards).
+export async function listBoards(userId: string) {
+  return withTenant(userId, async (tx) => {
+    const boards = await tx.board.findMany({ where: { ownerId: userId }, orderBy: { updatedAt: "desc" } });
+    return Promise.all(
+      boards.map(async (board) => {
+        const nodes = await tx.node.findMany({
+          where: { boardId: board.id, archivedAt: null },
+          orderBy: [{ parentId: "asc" }, { position: "asc" }],
+        });
+        const steps = nodes.filter((n) => n.kind === "STEP");
+        const counts = {
+          done: steps.filter((n) => n.status === "done" || n.status === "skipped").length,
+          total: steps.length,
+        };
+        const doingNode = steps.find((n) => n.status === "doing") ?? null;
+        const doing = doingNode
+          ? { number: numberMap(nodes).get(doingNode.id) ?? "", title: doingNode.title }
+          : null;
+        return { ...board, counts, doing };
+      }),
+    );
+  });
 }
 
 export function createBoard(userId: string, input: CreateBoardInput) {

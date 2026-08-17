@@ -4,13 +4,18 @@ const TOKEN_KEY = "exec-board:token";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(TOKEN_KEY);
+  return window.localStorage.getItem(TOKEN_KEY) ?? window.sessionStorage.getItem(TOKEN_KEY);
 }
 
-export function setToken(token: string | null) {
+// `persist` backs the login page's "Keep me signed in on this device"
+// checkbox: checked (default) survives browser restarts (localStorage);
+// unchecked is cleared when the tab closes (sessionStorage). Writing to one
+// always clears the other so a later plain setToken(null) can't miss a copy.
+export function setToken(token: string | null, persist = true) {
   if (typeof window === "undefined") return;
-  if (token) window.localStorage.setItem(TOKEN_KEY, token);
-  else window.localStorage.removeItem(TOKEN_KEY);
+  window.localStorage.removeItem(TOKEN_KEY);
+  window.sessionStorage.removeItem(TOKEN_KEY);
+  if (token) (persist ? window.localStorage : window.sessionStorage).setItem(TOKEN_KEY, token);
 }
 
 export class ApiError extends Error {

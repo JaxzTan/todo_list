@@ -103,6 +103,8 @@ function Rows({
   blockerByNode,
   onStart,
   onChanged,
+  reorderable = false,
+  underStep = false,
 }: {
   tree: TreeNode[];
   depth: number;
@@ -112,13 +114,58 @@ function Rows({
   blockerByNode: Map<string, string>;
   onStart: (nodeId: string) => void;
   onChanged: () => void;
+  // Drag-to-reorder among siblings — only true for a STEP's own children
+  // (layer-3 subtasks), per the user's ask; top-level phases/tasks keep
+  // their fixed creation order.
+  reorderable?: boolean;
+  // True when this row list is itself a STEP's children (layer-3 subtasks).
+  // Used to label/limit the "add" affordance per layer: a layer-2 step can
+  // add a subtask under it, but a layer-3 subtask is a leaf (no layer 4).
+  underStep?: boolean;
 }) {
   const { t } = useI18n();
   const [showAddFor, setShowAddFor] = useState<string | null>(null);
   const [cuttingId, setCuttingId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   const optionalCount = visibleFields.filter((f) => f === "due" || f === "prio" || f === "owner").length;
   // # + TASK + STATUS + optional cols + START — kept in sync with the <thead> in BoardTree.
   const totalCols = 4 + optionalCount;
+
+  function reorderTo(draggedId: string, targetIndex: number) {
+    patchNode(slug, draggedId, { position: targetIndex }).then(onChanged);
+  }
+
+  function rowDragProps(nodeId: string) {
+    if (!reorderable) return {};
+    return {
+      draggable: true,
+      onDragStart: (e: React.DragEvent) => {
+        e.dataTransfer.setData("text/plain", nodeId);
+        e.dataTransfer.effectAllowed = "move";
+        setDraggingId(nodeId);
+      },
+      onDragEnd: () => {
+        setDraggingId(null);
+        setOverId(null);
+      },
+      onDragOver: (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      },
+      onDragEnter: () => setOverId(nodeId),
+      onDragLeave: () => setOverId((prev) => (prev === nodeId ? null : prev)),
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault();
+        setOverId(null);
+        const draggedId = e.dataTransfer.getData("text/plain");
+        if (!draggedId || draggedId === nodeId) return;
+        const withoutDragged = tree.filter((x) => x.node.id !== draggedId);
+        const targetIndex = withoutDragged.findIndex((x) => x.node.id === nodeId);
+        if (targetIndex >= 0) reorderTo(draggedId, targetIndex);
+      },
+    };
+  }
 
   return (
     <>
@@ -161,6 +208,7 @@ function Rows({
                 blockerByNode={blockerByNode}
                 onStart={onStart}
                 onChanged={onChanged}
+                underStep={false}
               />
               <tr>
                 <td colSpan={totalCols}>
@@ -181,7 +229,15 @@ function Rows({
         const blocker = blockerByNode.get(node.id);
         return (
           <Fragment key={node.id}>
-            <tr className={isDoing ? "is-active" : undefined}>
+            <tr
+              className={isDoing ? "is-active" : undefined}
+              {...rowDragProps(node.id)}
+              style={{
+                cursor: reorderable ? "grab" : undefined,
+                opacity: draggingId === node.id ? 0.4 : 1,
+                boxShadow: overId === node.id ? "inset 0 2px 0 var(--color-accent)" : undefined,
+              }}
+            >
               <td style={{ color: "var(--ui-muted)", fontVariantNumeric: "tabular-nums" }}>{item.number}</td>
               <td style={{ paddingLeft: `calc(var(--space-4) * ${depth})` }}>
                 <EditableTitle title={node.title} onReword={(title, reason) => patchNode(slug, node.id, { title, reason }).then(onChanged)} />
@@ -235,23 +291,44 @@ function Rows({
                 blockerByNode={blockerByNode}
                 onStart={onStart}
                 onChanged={onChanged}
+                reorderable
+                underStep
               />
             )}
-            <tr>
-              <td />
-              <td colSpan={totalCols - 1}>
-                {showAddFor === node.id ? (
-                  <AddNodeDialog slug={slug} kind="STEP" parentId={node.id} onClose={() => setShowAddFor(null)} onAdded={() => { setShowAddFor(null); onChanged(); }} />
-                ) : (
-                  <button type="button" onClick={() => setShowAddFor(node.id)} className="btn btn-ghost" style={{ paddingInline: 0, fontSize: 12 }}>
-                    + {t("addStep")}
-                  </button>
-                )}
-              </td>
-            </tr>
+            {!underStep && (
+              <tr>
+                <td />
+                <td colSpan={totalCols - 1}>
+                  {showAddFor === node.id ? (
+                    <AddNodeDialog slug={slug} kind="STEP" parentId={node.id} onClose={() => setShowAddFor(null)} onAdded={() => { setShowAddFor(null); onChanged(); }} />
+                  ) : (
+                    <button type="button" onClick={() => setShowAddFor(node.id)} className="btn btn-ghost" style={{ paddingInline: 0, fontSize: 12 }}>
+                      + {t("addSubtask")}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            )}
           </Fragment>
         );
       })}
+      {reorderable && tree.length > 0 && (
+        <tr
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const draggedId = e.dataTransfer.getData("text/plain");
+            if (!draggedId) return;
+            const withoutDragged = tree.filter((x) => x.node.id !== draggedId);
+            reorderTo(draggedId, withoutDragged.length);
+          }}
+        >
+          <td colSpan={totalCols} style={{ height: 6, padding: 0 }} />
+        </tr>
+      )}
     </>
   );
 }

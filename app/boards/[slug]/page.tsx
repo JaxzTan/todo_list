@@ -5,10 +5,13 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/app/components/AppShell";
 import { BoardTree } from "@/app/components/BoardTree";
 import { MatrixView } from "@/app/components/MatrixView";
+import { QuadrantsView } from "@/app/components/QuadrantsView";
+import { DayView } from "@/app/components/DayView";
 import { NextActionAside } from "@/app/components/NextActionAside";
 import { FieldsPopover } from "@/app/components/FieldsPopover";
 import { EventLogDialog } from "@/app/components/EventLogDialog";
-import { api, downloadText } from "@/lib/client/api";
+import { api, downloadText, setToken } from "@/lib/client/api";
+import { isAuthError } from "@/lib/client/auth";
 import { useI18n } from "@/lib/client/i18n";
 import { flatten, buildClientTree } from "@/lib/client/tree";
 import type { BoardDetailResponse, EventRecord } from "@/lib/client/types";
@@ -17,7 +20,8 @@ interface ReportResponse {
   report: { body: string };
 }
 
-type Tab = "board" | "matrix";
+type Tab = "board" | "matrix" | "quadrants";
+type MainView = "tasks" | "day";
 
 export default function BoardDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
@@ -26,17 +30,27 @@ export default function BoardDetailPage({ params }: { params: Promise<{ slug: st
   const [detail, setDetail] = useState<BoardDetailResponse | null>(null);
   const [events, setEvents] = useState<EventRecord[] | null>(null);
   const [tab, setTab] = useState<Tab>("board");
+  const [mainView, setMainView] = useState<MainView>("tasks");
   const [report, setReport] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
+  const onAuthError = useCallback(
+    (err: unknown) => {
+      if (!isAuthError(err)) throw err;
+      setToken(null);
+      router.replace("/login");
+    },
+    [router],
+  );
+
   const reload = useCallback(() => {
-    api.get<BoardDetailResponse>(`/api/boards/${slug}`).then(setDetail);
-    api.get<{ events: EventRecord[] }>(`/api/boards/${slug}/events`).then((r) => setEvents(r.events));
-  }, [slug]);
+    api.get<BoardDetailResponse>(`/api/boards/${slug}`).then(setDetail, onAuthError);
+    api.get<{ events: EventRecord[] }>(`/api/boards/${slug}/events`).then((r) => setEvents(r.events), onAuthError);
+  }, [slug, onAuthError]);
 
   function onDeleteBoard() {
-    api.del(`/api/boards/${slug}`).then(() => router.push("/boards"));
+    api.del(`/api/boards/${slug}`).then(() => router.push("/boards"), onAuthError);
   }
 
   useEffect(reload, [reload]);
@@ -65,12 +79,25 @@ export default function BoardDetailPage({ params }: { params: Promise<{ slug: st
       }
       controls={
         <>
+          {mainView === "tasks" && (
+            <div className="seg">
+              <button type="button" aria-pressed={tab === "board"} onClick={() => setTab("board")} className="seg-opt">
+                {t("tabBoard")}
+              </button>
+              <button type="button" aria-pressed={tab === "matrix"} onClick={() => setTab("matrix")} className="seg-opt">
+                {t("tabMatrix")}
+              </button>
+              <button type="button" aria-pressed={tab === "quadrants"} onClick={() => setTab("quadrants")} className="seg-opt">
+                {t("tabQuadrants")}
+              </button>
+            </div>
+          )}
           <div className="seg">
-            <button type="button" aria-pressed={tab === "board"} onClick={() => setTab("board")} className="seg-opt">
-              {t("tabBoard")}
+            <button type="button" aria-pressed={mainView === "day"} onClick={() => setMainView("day")} className="seg-opt">
+              {t("tabDay")}
             </button>
-            <button type="button" aria-pressed={tab === "matrix"} onClick={() => setTab("matrix")} className="seg-opt">
-              {t("tabMatrix")}
+            <button type="button" aria-pressed={mainView === "tasks"} onClick={() => setMainView("tasks")} className="seg-opt">
+              {t("tabTasks")}
             </button>
           </div>
           <FieldsPopover board={detail.board} slug={slug} onChanged={reload} />
@@ -87,7 +114,7 @@ export default function BoardDetailPage({ params }: { params: Promise<{ slug: st
           </button>
           <button
             type="button"
-            onClick={() => api.get<ReportResponse>(`/api/boards/${slug}/report`).then((r) => setReport(r.report.body))}
+            onClick={() => api.get<ReportResponse>(`/api/boards/${slug}/report`).then((r) => setReport(r.report.body), onAuthError)}
             className="btn btn-ghost"
             style={{ paddingInline: 0 }}
           >
@@ -134,10 +161,14 @@ export default function BoardDetailPage({ params }: { params: Promise<{ slug: st
             onOpenLog={() => setShowLog(true)}
           />
           <div style={{ flex: 1, minWidth: 0 }}>
-            {tab === "board" ? (
+            {mainView === "day" ? (
+              <DayView nodes={detail.nodes} numbers={numbers} slug={slug} onChanged={reload} />
+            ) : tab === "board" ? (
               <BoardTree nodes={detail.nodes} blockers={detail.blockers} visibleFields={detail.board.visibleFields} slug={slug} onChanged={reload} />
-            ) : (
+            ) : tab === "matrix" ? (
               <MatrixView nodes={detail.nodes} nextActionNodeId={detail.nextAction?.nodeId ?? null} slug={slug} onChanged={reload} />
+            ) : (
+              <QuadrantsView nodes={detail.nodes} nextActionNodeId={detail.nextAction?.nodeId ?? null} slug={slug} onChanged={reload} />
             )}
           </div>
         </div>

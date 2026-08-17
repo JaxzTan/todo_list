@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma, withTenant } from "../../db";
-import { createBoard, getBoardDetail } from "../service";
+import { createBoard, getBoardDetail, listBoards } from "../service";
 import { addNode, addNote, patchNode } from "../mutations";
 import { openOrCloseSession } from "../sessions";
 import { revertEvent } from "../revert";
@@ -155,6 +155,27 @@ describe("reword and attributes (TR-9, TR-10)", () => {
     await patchNode(userId, board.slug, step.id, { owner: null });
     current = await withTenant(userId, (tx) => tx.board.findUniqueOrThrow({ where: { id: board.id } }));
     expect(current.activeColumns).toContain("owner");
+  });
+
+  it("quadrant and scheduledAt patch independently and don't touch activeColumns", async () => {
+    const board = await freshBoard();
+    const step = await addNode(userId, board.slug, { kind: "STEP", title: "A step" });
+
+    const iso = new Date("2026-08-14T09:00:00.000Z").toISOString();
+    await patchNode(userId, board.slug, step.id, { quadrant: "do_now", scheduledAt: iso });
+
+    const updated = await withTenant(userId, (tx) => tx.node.findUniqueOrThrow({ where: { id: step.id } }));
+    expect(updated.quadrant).toBe("do_now");
+    expect(updated.scheduledAt?.toISOString()).toBe(iso);
+
+    const current = await withTenant(userId, (tx) => tx.board.findUniqueOrThrow({ where: { id: board.id } }));
+    expect(current.activeColumns).toEqual([]);
+
+    // Clearing both goes back to unset.
+    await patchNode(userId, board.slug, step.id, { quadrant: null, scheduledAt: null });
+    const cleared = await withTenant(userId, (tx) => tx.node.findUniqueOrThrow({ where: { id: step.id } }));
+    expect(cleared.quadrant).toBeNull();
+    expect(cleared.scheduledAt).toBeNull();
   });
 
   it("cutting a node archives it and removes it from the active tree; restoring brings it back", async () => {
@@ -378,5 +399,30 @@ describe("report generation (FR-15, TR-11)", () => {
     expect(report.body).toContain("## Completed");
     expect(report.body).not.toContain("## Blockers");
     expect(report.body).not.toContain("## Waiting on");
+  });
+});
+
+describe("listBoards progress (boards-index cards)", () => {
+  it("reports done/total counts and the numbered doing node, if any", async () => {
+    const board = await freshBoard();
+    const group = await addNode(userId, board.slug, { kind: "GROUP", title: "Phase" });
+    const a = await addNode(userId, board.slug, { kind: "STEP", title: "A", parentId: group.id });
+    const b = await addNode(userId, board.slug, { kind: "STEP", title: "B", parentId: group.id });
+    await patchNode(userId, board.slug, a.id, { status: "done" });
+    await patchNode(userId, board.slug, b.id, { status: "doing" });
+
+    const boards = await listBoards(userId);
+    const row = boards.find((x) => x.slug === board.slug)!;
+    expect(row.counts).toEqual({ done: 1, total: 2 });
+    expect(row.doing).toEqual({ number: "2", title: "B" });
+  });
+
+  it("doing is null when nothing on the board is in progress", async () => {
+    const board = await freshBoard();
+    await addNode(userId, board.slug, { kind: "STEP", title: "Untouched" });
+
+    const boards = await listBoards(userId);
+    const row = boards.find((x) => x.slug === board.slug)!;
+    expect(row.doing).toBeNull();
   });
 });

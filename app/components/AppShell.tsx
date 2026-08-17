@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth, useRequireAuth } from "@/lib/client/auth";
@@ -36,7 +37,8 @@ export function AppShell({
   return (
     <div style={{ minHeight: "100vh" }}>
       <header className="nav">
-        <Link href="/boards" className="nav-brand" style={{ marginRight: 0 }}>
+        <Link href="/boards" className="nav-brand" style={{ marginRight: 0, display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+          <Image src="/logo.png" alt="" width={36} height={36} style={{ borderRadius: 8 }} />
           {t("boardsBreadcrumb")}
         </Link>
         {crumb}

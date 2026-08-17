@@ -303,6 +303,25 @@ textarea.input { min-height: 90px; resize: vertical; }
 .dialog-body { font-size: 14px; opacity: 0.85; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
 
+/* — login split hero — */
+.login-grid {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+}
+.login-panel {
+  border-left: 1px solid var(--color-divider);
+}
+@media (max-width: 860px) {
+  .login-grid {
+    grid-template-columns: 1fr;
+  }
+  .login-panel {
+    border-left: 0;
+    border-top: 1px solid var(--color-divider);
+  }
+}
+
 /* — popover (Fields, attribute editors) — */
 .popover {
   position: absolute;

@@ -1,7 +1,7 @@
 "use client";
 
 import { api } from "./api";
-import type { StepStatus, Prio, NodeKind } from "./types";
+import type { StepStatus, Prio, NodeKind, Quadrant } from "./types";
 
 export function addNode(slug: string, input: { kind: NodeKind; title: string; parentId?: string | null }) {
   return api.post(`/api/boards/${slug}/nodes`, input);
@@ -14,6 +14,9 @@ export interface PatchNodeInput {
   due?: string | null;
   prio?: Prio | null;
   owner?: string | null;
+  quadrant?: Quadrant | null;
+  scheduledAt?: string | null;
+  position?: number;
   archived?: boolean;
   blocker?: { description: string; unblockPlan?: string };
 }

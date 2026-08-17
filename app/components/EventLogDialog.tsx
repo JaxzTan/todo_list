@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/client/api";
+import { useRouter } from "next/navigation";
+import { api, setToken } from "@/lib/client/api";
+import { isAuthError } from "@/lib/client/auth";
 import { useI18n, type DictKey } from "@/lib/client/i18n";
 import { summarizeEvent, type NumberLookup } from "@/lib/client/eventSummary";
 import type { EventRecord } from "@/lib/client/types";
@@ -22,10 +24,18 @@ export function EventLogDialog({
   onClose: () => void;
 }) {
   const { t } = useI18n();
+  const router = useRouter();
   const [events, setEvents] = useState<EventRecord[] | null>(null);
 
   function reload() {
-    api.get<{ events: EventRecord[] }>(`/api/boards/${slug}/events`).then((r) => setEvents(r.events));
+    api.get<{ events: EventRecord[] }>(`/api/boards/${slug}/events`).then(
+      (r) => setEvents(r.events),
+      (err) => {
+        if (!isAuthError(err)) throw err;
+        setToken(null);
+        router.replace("/login");
+      },
+    );
   }
 
   useEffect(reload, [slug]);
