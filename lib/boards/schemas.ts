@@ -44,6 +44,7 @@ export const patchNodeSchema = z
     quadrant: z.enum(["do_now", "schedule", "delegate", "drop"]).nullable().optional(),
     scheduledAt: z.string().datetime().nullable().optional(),
     doneCondition: z.string().max(1000).nullable().optional(),
+    flagged: z.boolean().optional(),
     // Drag-to-reorder among siblings (same parentId) — a 0-based target
     // index within the sibling list *excluding* this node itself.
     position: z.number().int().min(0).optional(),

@@ -235,6 +235,10 @@ export async function patchNode(
         attrChanges.doneCondition = { from: node.doneCondition, to: input.doneCondition };
         attrData.doneCondition = input.doneCondition;
       }
+      if (input.flagged !== undefined && input.flagged !== node.flagged) {
+        attrChanges.flagged = { from: String(node.flagged), to: String(input.flagged) };
+        attrData.flagged = input.flagged;
+      }
 
       if (Object.keys(attrChanges).length > 0) {
         await tx.node.update({ where: { id: node.id }, data: attrData });

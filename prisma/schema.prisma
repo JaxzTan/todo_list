@@ -127,6 +127,7 @@ model Node {
   owner         String?
   quadrant      Quadrant?
   scheduledAt   DateTime?
+  flagged       Boolean    @default(false)
   archivedAt    DateTime?
   createdAt     DateTime   @default(now())
 

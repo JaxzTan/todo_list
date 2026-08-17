@@ -19,6 +19,7 @@ export interface PatchNodeInput {
   position?: number;
   archived?: boolean;
   blocker?: { description: string; unblockPlan?: string };
+  flagged?: boolean;
 }
 
 export function patchNode(slug: string, nodeId: string, input: PatchNodeInput) {

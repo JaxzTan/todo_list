@@ -40,6 +40,7 @@ export interface NodeRecord {
   owner: string | null;
   quadrant: Quadrant | null;
   scheduledAt: string | null;
+  flagged: boolean;
   archivedAt: string | null;
   createdAt: string;
 }
