@@ -10,7 +10,7 @@ const boardSlug = boardTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/
 test("full flow: login, create board, add step, change status, matrix, export", async ({ page }) => {
   await page.goto("/login");
   await page.getByPlaceholder("ebpat_...").fill(TOKEN);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page).toHaveURL(/\/boards/);
 

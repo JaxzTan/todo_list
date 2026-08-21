@@ -38,3 +38,4 @@ backups/*.dump
 docs
 Three Layer Day Board Design/
 *.html
+.env*
