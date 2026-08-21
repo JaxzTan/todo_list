@@ -25,11 +25,16 @@ services:
     container_name: exec-board-web
     environment:
       NODE_ENV: development
-      # Container-to-container networking uses the service name (db) and
-      # the container-internal port (5432) — not localhost:${DB_PORT},
-      # which is only how the *host* reaches Postgres.
-      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
-      APP_DATABASE_URL: postgresql://exec_board_app:${APP_DB_PASSWORD}@db:5432/${DB_NAME}
+      # Passed straight through from .env — local dev connects to the same
+      # Neon database as production, not the local db service below.
+      DATABASE_URL: ${DATABASE_URL}
+      APP_DATABASE_URL: ${APP_DATABASE_URL}
+      # Docker Desktop's bridge network advertises IPv6 addresses for Neon's
+      # host that it can't actually route, so Node's Happy Eyeballs races an
+      # unreachable AAAA record against the working A record and the whole
+      # connection attempt times out. Disabling autoselection forces a plain
+      # IPv4 connect.
+      NODE_OPTIONS: --no-network-family-autoselection
     depends_on:
       db:
         condition: service_healthy
