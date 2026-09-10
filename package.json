@@ -17,6 +17,7 @@
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "db:migrate": "prisma migrate dev",
+    "db:fresh": "npm run db:up && prisma migrate reset --force && bash scripts/setup-db-role.sh",
     "db:generate": "prisma generate",
     "db:backup": "bash scripts/backup-db.sh",
     "tunnel:start": "bash scripts/start-tunnel.sh",
