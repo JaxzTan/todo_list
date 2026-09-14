@@ -1,12 +1,12 @@
-# Architecture — Exec Board
+# Architecture — Tubeboard
 
 | Field | Value |
 |---|---|
 | **Status** | Living |
 | **Version** | 0.1.0 |
-| **Last updated** | 2026-08-12 |
+| **Last updated** | 2026-09-13 |
 | **Owners** | @JaxzTan |
-| **Related docs** | [PRD](./docs/3%20Layers%20Rule%20PRD%20(1).md) · [TRD](./docs/3%20Layers%20Rule%20PRD%20(3).md) · [API reference](./docs/endpoint.md) · [Build history](./docs/list.md) · [Dual-login design doc](./docs/dual-login-plan.md) |
+| **Related docs** | [PRD](./docs/3%20Layers%20Rule%20PRD%20(1).md) · [TRD](./docs/3%20Layers%20Rule%20PRD%20(3).md) · [API reference](./docs/endpoint.md) · [Build history](./docs/list.md) · [Dual-login design doc (historical)](./docs/dual-login-plan.md) |
 | **Audience** | Future-you, and anyone else who ends up reading this code |
 
 ---
@@ -38,7 +38,7 @@
 
 ## 1. Overview
 
-Exec Board is a persistent task board, tracked in three layers (project → task → subtask), that two different clients write to: a Claude skill (in-chat, infers status changes from conversation) and a Next.js web app (a person clicking around). It is a **server-rendered monolith** — one Next.js process serves both the UI and the REST API — backed by a single PostgreSQL database, with no queue, cache, or separate services.
+Tubeboard is a persistent task board, tracked in three layers (project → task → subtask), that two different clients write to: a Claude skill (in-chat, infers status changes from conversation) and a Next.js web app (a person clicking around). It is a **server-rendered monolith** — one Next.js process serves both the UI and the REST API — backed by a single managed PostgreSQL database on Neon, with no queue, cache, or separate services.
 
 **The single most important architectural property:** a board is a *history*, not a snapshot. Every mutation is recorded as an append-only `Event` before anything else is derived from it; `Node.status`, the "next action," step numbers, and progress counts are all either computed on read or a materialized fold over the event log that a repair job can rebuild. Nearly every other decision below follows from treating the event log, not the current row values, as the source of truth.
 
@@ -62,7 +62,7 @@ Exec Board is a persistent task board, tracked in three layers (project → task
 
 | # | Non-Goal | Rationale |
 |---|---|---|
-| NG1 | Multi-tenant SaaS / self-serve signup | Users are hand-provisioned via CLI (`scripts/issue-token.mts`, `scripts/set-password.mts`); this is a personal tool for a couple of people, not a product |
+| NG1 | Multi-tenant SaaS / self-serve signup | Users are hand-provisioned via CLI (`scripts/set-password.mts`); this is a personal tool for a couple of people, not a product |
 | NG2 | Horizontal scaling / multiple app instances | Single Next.js process is nowhere near saturated at this load; would also break the current per-request O(n) credential check (see §13) |
 | NG3 | High availability / multi-region | One machine, one Postgres instance, no SLA |
 | NG4 | Realtime updates (WebSocket, polling, SSE) | Boards are edited by one person or one inference at a time; a normal HTTP request/response cycle is sufficient |
@@ -77,7 +77,7 @@ Exec Board is a persistent task board, tracked in three layers (project → task
 | Tenant isolation | A board/node a caller doesn't own is unreachable by id *or* slug | Automated cross-tenant test suite against a real (not mocked) Postgres, generated over the route table — asserts `404`, never `403` | ✅ Verified |
 | Reversibility | Every mutation type either has a defined inverse or is explicitly rejected on revert | Table-driven tests over `STATUS_CHANGED`, `ATTR_SET`, `NODE_REWORDED`, `NODE_ADDED`, `NODE_CUT`; other types → `409` | ✅ Verified |
 | Format fidelity | `board-codec` round-trips: parse → serialize → parse is idempotent | fast-check property tests (200+100 runs) + golden-file fixtures, including a hand-mangled one | ✅ Verified |
-| Auth correctness | A PAT or a password credential resolves to exactly one user or to none | Unit tests over `resolveUser`/`requireUser`/`loginWithPassword` covering valid, wrong, expired, and unknown-handle cases | ✅ Verified |
+| Auth correctness | A session token resolves to exactly one user or to none | Unit tests over `resolveUser`/`requireUser`/`loginWithPassword` covering valid, wrong, expired, unknown-handle, concurrent-session, and session-cap cases | ✅ Verified |
 | Latency / throughput | *(none set)* | Not load-tested | ⚠️ Unmeasured — see §13 |
 | Availability | *(none set — best-effort, personal tool)* | N/A | N/A |
 
@@ -90,7 +90,7 @@ Exec Board is a persistent task board, tracked in three layers (project → task
 | Type | Constraint | Source |
 |---|---|---|
 | Technical | The app **must never connect to Postgres as the superuser at runtime** | RLS is a silent no-op for superuser connections (`lib/db.ts` throws at boot if `APP_DATABASE_URL` is missing) |
-| Technical | Must run via `docker compose up` end-to-end, including the DB | Project convention (`Makefile`, `docker-compose.yml`) |
+| Technical | The app runs via `docker compose up`; the database is Neon, reached over the network with IPv4 forced (`NODE_OPTIONS=--no-network-family-autoselection`) | Project convention (`Makefile`, `docker-compose.yml`); Docker Desktop can't route Neon's IPv6 addresses |
 | Team | Solo-maintained, no fixed deadline | Personal project |
 | Product | No self-serve account creation | Accounts are operator-issued, by design (§2.2 NG1) |
 
@@ -113,7 +113,7 @@ graph TB
     claude([Claude Code session<br/>running the exec-board skill])
     operator([Operator<br/>you, via CLI scripts])
 
-    subgraph system[" Exec Board "]
+    subgraph system[" Tubeboard "]
         core[Next.js app<br/>UI + REST API + Postgres]
     end
 
@@ -128,17 +128,20 @@ graph TB
 
 | Actor | Type | Interacts via | Trust level |
 |---|---|---|---|
-| Person (you) | Human | Browser (SPA), directly or through ngrok | Authenticated (PAT or password) once logged in; all input validated server-side regardless |
-| Claude Code session | System, acting on a person's behalf | `scripts/board-client.mts`, over the ngrok tunnel | Authenticated via a PAT (`EXEC_BOARD_TOKEN`) |
-| Operator | Human | CLI scripts (`issue-token.mts`, `set-password.mts`, `backup-db.sh`) + direct host/DB access | Full — these scripts run with the Postgres superuser connection |
+| Person (you) | Human | Browser (SPA), directly or through ngrok | Authenticated (handle + password → session token) once logged in; all input validated server-side regardless |
+| Claude Code session | System, acting on a person's behalf | `scripts/board-client.mts`, over the ngrok tunnel | Authenticated by password login as the service account (`EXEC_BOARD_HANDLE`/`EXEC_BOARD_PASSWORD`, default `USER1`/`PASSWORD1`); session token cached in `.exec-board/session-token` |
+| Operator | Human | CLI scripts (`set-password.mts`, `backup-db.sh`) + direct host/DB access | Full — these scripts run with the Postgres superuser connection |
 
 ### 4.2 External dependencies
 
 | Dependency | Purpose | Protocol | Failure impact | Fallback |
 |---|---|---|---|---|
 | ngrok | Exposes `localhost:3300` to the Claude skill sandbox | HTTPS tunnel | Skill can't reach the API | Skill client falls back to local-file mode (`.exec-board/` on disk) — a genuine, exercised fallback, not aspirational |
+| Neon | Hosts the only real Postgres database (`exec_board`) | Postgres over TLS | Whole app down — every request needs the DB | None — the skill's local-file fallback still works, the web app doesn't |
 
 There is no OAuth provider, no email/SMTP, no CDN, and no third-party metrics backend — none are in the current design.
+
+A local Postgres container (`db`) still starts with the stack, but since 2026-08-21 the app does not use it (§15, §17 L10).
 
 ---
 
@@ -162,7 +165,7 @@ graph TB
         codec[board-codec<br/>markdown ⇄ JSON]
     end
 
-    db[(PostgreSQL 17<br/>RLS-scoped)]
+    db[(PostgreSQL on Neon<br/>RLS-scoped)]
 
     spa -->|HTTPS, same origin| api
     skill -->|HTTPS| ngrok --> api
@@ -178,13 +181,13 @@ graph TB
 
 | Container | Owns | Explicitly does **not** own | Tech | Scaling unit |
 |---|---|---|---|---|
-| Web app (client components) | Rendering, optimistic-ish UI, input capture | Any authoritative state, any validation | React 19, Next.js App Router, TailwindCSS | N/A — served by the same process as the API |
+| Web app (client components) | Rendering, input capture; views: Tree (drag-to-reorder), Matrix (due×priority), Quadrants (Eisenhower), Day (hour slots), node detail drawer | Any authoritative state, any validation | React 19, Next.js App Router, TailwindCSS | N/A — served by the same process as the API |
 | Skill client | Translating conversation into API calls; local-file fallback | Auth logic, board format parsing (delegates to `board-codec`) | Node/TS script | N/A |
 | Route handlers | Request parsing (Zod), auth check, error→status mapping | Business logic (delegates to the service layer) | Next.js Route Handlers | Same process as everything else |
 | Board service layer | Mutation logic, event emission, next-action derivation | HTTP concerns, auth | TypeScript, Prisma | " |
-| Auth resolution | PAT/password verification, session-token minting | Tenant-scoped queries (runs *before* tenancy is known) | argon2, Prisma | " |
+| Auth resolution | Password verification, session-token minting | Tenant-scoped queries (runs *before* tenancy is known) | argon2, Prisma | " |
 | `board-codec` | The markdown grammar, both directions | Persistence, HTTP | TypeScript (workspace package) | Runs in-process in both the skill script and the app |
-| PostgreSQL | Durable state, row-level tenant isolation | Ephemeral/session state — there isn't any | Postgres 17, Docker Compose, named volume | 1 instance |
+| PostgreSQL | Durable state, row-level tenant isolation | Ephemeral/session state — there isn't any | Neon (managed Postgres), `exec_board` database | 1 instance |
 
 There is deliberately no separate reverse proxy, no cache, no queue, and no background worker process. ngrok is not an always-on edge — it only runs during an active tunnel session.
 
@@ -251,16 +254,16 @@ There is deliberately no separate reverse proxy, no cache, no queue, and no back
 **Owner:** @JaxzTan
 
 **Responsibility:**
-> Turn an `Authorization: Bearer <token>` header into a `User`, regardless of whether the token is a PAT or a password-login session token.
+> Turn an `Authorization: Bearer <token>` header into a `User`, where the token is a password-login session token (the only bearer credential since PATs were removed, ADR-007).
 
-**Key files:** `tokens.ts` (argon2 hash/verify, token generation), `tenant.ts` (`resolveUser`/`requireUser`), `service.ts` (`loginWithPassword`), `schemas.ts`.
+**Key files:** `tokens.ts` (argon2 hash/verify, session-token generation), `tenant.ts` (`resolveUser`/`requireUser`), `service.ts` (`loginWithPassword`), `schemas.ts`.
 
 **Depends on:** `lib/db.ts` (the *unscoped* `prisma` client — has to read across all users before it knows who the tenant is), `@node-rs/argon2`.
 **Depended on by:** every route handler (`requireUser(request)`), `app/api/auth/login/route.ts`.
 
 **Does NOT own:** tenant-scoped queries — once a `User` is resolved, everything downstream goes through `withTenant()`, not this module.
 
-**Invariants:** a PAT and a session token are verified independently and never confused; a failed lookup never distinguishes *why* (unknown handle vs. wrong password vs. no password set) in its response.
+**Invariants:** each user holds at most `MAX_SESSIONS_PER_USER` (3) live sessions; a failed lookup never distinguishes *why* (unknown handle vs. wrong password vs. no password set) in its response.
 
 ---
 
@@ -272,9 +275,9 @@ There is exactly one datastore (PostgreSQL) and exactly one writer (the Next.js 
 
 | Table | Data | Sole writer | Durability | Retention |
 |---|---|---|---|---|
-| `User` | Identity, PAT hash, password hash | Operator scripts (`issue-token.mts`, `set-password.mts`) + `loginWithPassword` (session rotation only) | Durable | Until deleted |
-| `AuthSession` | Password-login session tokens | `lib/auth/service.ts` | Durable, but treated as ephemeral (30-day expiry, one per user) | 30 days, or replaced on next login |
-| `Board`, `Node`, `Event`, `Blocker`, `Session`, `Import`, `Report` | Board content and its full history | Board service layer, inside `withTenant()` | Durable | Forever (nothing is hard-deleted; cuts/archives are soft) |
+| `User` | Identity, password hash | Operator script (`set-password.mts`) | Durable | Until deleted |
+| `AuthSession` | Password-login session tokens | `lib/auth/service.ts` | Durable, but treated as ephemeral (30-day expiry, at most 3 per user) | 30 days, or pruned when a newer login exceeds the cap |
+| `Board`, `Node`, `Event`, `Blocker`, `Session`, `Import`, `Report` | Board content and its full history | Board service layer, inside `withTenant()` | Durable | Forever — node cuts/archives are soft. **Exception:** `DELETE /api/boards/:slug` hard-deletes a board and cascades every child row |
 
 ### 7.2 Logical model
 
@@ -292,7 +295,6 @@ erDiagram
     USER {
         string id PK
         string handle UK
-        string tokenHash UK "argon2, PAT"
         string passwordHash "nullable, argon2"
     }
     AUTH_SESSION {
@@ -313,6 +315,10 @@ erDiagram
         string parentId FK "self-referential tree"
         string kind "GROUP | STEP"
         string status "todo|doing|stuck|done|skipped"
+        int position "sibling order"
+        string quadrant "nullable: do_now|schedule|delegate|drop"
+        datetime scheduledAt "nullable, Day view slot"
+        boolean flagged
     }
     EVENT {
         string id PK
@@ -338,8 +344,9 @@ The one deliberate denormalization: `Node.status` is a materialized fold over `S
 
 - **Migration tool:** Prisma Migrate, forward-only.
 - **RLS is hand-written SQL** inside a migration (`20260723030110_tenancy_rls`) — Prisma's schema language has no RLS primitive, so it's raw `CREATE POLICY` statements Prisma can't diff against `schema.prisma`. This is a known source of "drift" that CI's `prisma migrate diff --exit-code` job exists specifically to catch.
-- **Seed data:** none automated — users are created on demand via `scripts/issue-token.mts <handle>` / `scripts/set-password.mts <handle> <password>`, each an idempotent upsert.
-- **Backup:** `scripts/backup-db.sh` — `pg_dump --format=custom`, prunes anything older than `EXEC_BOARD_BACKUP_RETENTION_DAYS` (default 14). Not run on a schedule by default; see §17.
+- **Seed data:** none automated — users are created on demand via `scripts/set-password.mts <handle> <password>` (or `make reset` for every `USER<n>`/`PASSWORD<n>` pair in `.env`), an idempotent upsert.
+- **Backup:** `scripts/backup-db.sh` — `pg_dump --format=custom`, prunes anything older than `EXEC_BOARD_BACKUP_RETENTION_DAYS` (default 14). Not run on a schedule by default. **It dumps the local `db` container, not Neon**, so it does not currently back up the real data; see §17 L2/L10.
+- **Migrations run against Neon** (`DATABASE_URL`). `npm run db:fresh` is `prisma migrate reset --force` against that URL — it wipes the real database.
 
 ---
 
@@ -355,7 +362,7 @@ That's the only interface. There is no WebSocket layer, no internal RPC between 
 
 ### 8.2 REST conventions
 
-- **Auth:** `Authorization: Bearer <PAT or session token>` on every route except `GET /api/health` and `POST /api/auth/login`.
+- **Auth:** `Authorization: Bearer <session token>` on every route except `GET /api/health` and `POST /api/auth/login`.
 - **Error envelope** (`lib/api/http.ts::handleRouteError`) — the actual shape used everywhere, not a hypothetical one:
 
 ```json
@@ -368,7 +375,7 @@ That's the only interface. There is no WebSocket layer, no internal RPC between 
 
 - **Status codes:** `400` validation/malformed JSON · `401` missing/invalid bearer token · `404` absent *or* not the caller's (never `403`, see §7.3) · `409` conflict (e.g. a second `doing` step, re-reverting an already-reverted event) · `5xx` unexpected, logged server-side, never leaks internals to the caller.
 - **Pagination:** none implemented — board node/event counts are small enough that every list endpoint returns everything.
-- **Idempotency:** PAT/password issuance are upserts by `handle`; password-login session creation replaces the prior session rather than accumulating one per call.
+- **Idempotency:** password issuance is an upsert by `handle`; each password login adds a session and prunes the user's oldest beyond 3, so repeated logins stay bounded.
 
 ### 8.3 Compatibility policy
 
@@ -390,27 +397,19 @@ sequenceDiagram
 
     C->>R: Request, Authorization: Bearer <token>
     R->>A: requireUser(request)
-    A->>D: SELECT * FROM "User"
-    loop each user
-        A->>A: argon2.verify(user.tokenHash, token)
+    A->>D: SELECT * FROM "AuthSession" WHERE expiresAt > now()
+    loop each session
+        A->>A: argon2.verify(session.tokenHash, token)
     end
-    alt PAT matched
-        A-->>R: User
-    else no PAT match
-        A->>D: SELECT * FROM "AuthSession" WHERE expiresAt > now()
-        loop each session
-            A->>A: argon2.verify(session.tokenHash, token)
-        end
-        alt session matched
-            A-->>R: session.user
-        else no match
-            A-->>R: UnauthorizedError
-        end
+    alt session matched
+        A-->>R: session.user
+    else no match
+        A-->>R: UnauthorizedError
     end
     R-->>C: 401, or proceed with tenant-scoped work
 ```
 
-**Notes:** the O(n) loop is a deliberate tradeoff, not an oversight — see §13. A malformed hash on one row (bad data, mid-rotation) is caught per-row so it can't break resolution for every other user.
+**Notes:** the O(n) loop is a deliberate tradeoff, not an oversight — see §13. A malformed hash on one row is caught per-row so it can't break resolution for every other session.
 
 ### 9.2 Password login
 
@@ -434,8 +433,8 @@ sequenceDiagram
             S-->>R: null
             R-->>C: 401 (same response as above — doesn't disclose which)
         else correct
-            S->>D: DELETE AuthSession WHERE userId (replace, don't accumulate)
-            S->>D: INSERT AuthSession (new token, hashed, expiresAt +30d)
+            S->>D: SELECT 2 newest live AuthSession ids for user
+            S->>D: batch: DELETE the user's other sessions + INSERT new one (hashed, expiresAt +30d)
             S-->>R: raw session token
             R-->>C: 200 {"token": "ebsess_..."}
         end
@@ -484,7 +483,7 @@ There is no in-memory session/application state to speak of — the app is state
 | State | Location | Lifetime | Authority |
 |---|---|---|---|
 | Board content, events, users | Postgres | Permanent | The app (sole writer) |
-| A PAT / session token | Client-side `localStorage` (web) or `.env` (skill) | Until logout/rotation | Not authoritative — just a credential; Postgres is |
+| A session token | Client-side `localStorage` (web) or `.exec-board/session-token` (skill) | Until logout/rotation | Not authoritative — just a credential; Postgres is |
 | UI state (open dialogs, form drafts) | Browser, React state | Tab lifetime | Irrelevant to correctness |
 | Skill's local-file fallback (`.exec-board/`) | Disk, on the machine running the skill | Until the API is reachable again | A stand-in for the real board, reconciled manually — not synced automatically |
 
@@ -506,8 +505,8 @@ Not applicable. There is one app process, no in-memory per-session state, and th
 
 ### 10.5 Idempotency & ordering
 
-- `issue-token.mts` / `set-password.mts` are upserts keyed by `handle` — re-running for the same handle rotates the credential rather than erroring or duplicating.
-- A password login always deletes-then-creates the user's `AuthSession`, so repeated logins never accumulate rows.
+- `set-password.mts` is an upsert keyed by `handle` — re-running for the same handle rotates the password rather than erroring or duplicating.
+- A password login keeps the user's 2 newest live `AuthSession`s, deletes the rest, and inserts the new one in one batch, so repeated logins never exceed 3 rows per user.
 - Within one board, event ordering is Postgres's insertion order (`at` timestamp + id); there's no cross-board ordering guarantee or need for one.
 
 ---
@@ -518,17 +517,17 @@ Not applicable. There is one app process, no in-memory per-session state, and th
 
 | Aspect | Approach |
 |---|---|
-| AuthN | Either a PAT (argon2-hashed, shown once at issuance, never expires) or a password login (mints a 30-day `AuthSession` token) |
+| AuthN | Handle + password login, which mints a 30-day `AuthSession` token. Google/GitHub OAuth buttons are on the login page but not yet wired to providers |
 | Default posture | Deny by default — every route calls `requireUser(request)` except the two explicitly public ones |
 | AuthZ model | Ownership only — a board belongs to exactly one `User`; no roles, no sharing, no admin tier |
 | Token storage | `localStorage` on the web client (`lib/client/api.ts`) — a deliberate, accepted deviation from the httpOnly-cookie norm; this is a bearer-token API by design (TR-14), and a plain `<a href>` can't carry a bearer header anyway, which is why downloads go through `fetch` + `Blob` instead of direct navigation |
-| Revocation | A PAT can only be revoked by rotating it (re-running `issue-token.mts`, which overwrites the hash). A session token can be revoked by any subsequent login (replaces it) — there's no explicit "log out everywhere" |
+| Revocation | A session token expires after 30 days, or is pruned once the user has 3 newer logins. There's no explicit "log out everywhere"; deleting the user's `AuthSession` rows does it manually |
 
 ### 11.2 Configuration & secrets
 
 - **Source:** env vars only, read from `.env` (gitignored) locally or `docker-compose.yml`'s `environment:` block in containers.
 - **Validation:** minimal and ad hoc — `lib/db.ts` throws at import time if `APP_DATABASE_URL` is missing; most other config is read where used, without a central schema. *(Known gap — see §17.)*
-- **Secrets:** PATs and passwords are argon2-hashed at rest; the RLS app role's real Postgres password is synced from `.env` via `scripts/setup-db-role.sh` rather than baked into a migration file.
+- **Secrets:** passwords and session tokens are argon2-hashed at rest; the RLS app role's real Postgres password is synced from `.env` via `scripts/setup-db-role.sh` rather than baked into a migration file.
 
 ### 11.3 Observability
 
@@ -537,7 +536,7 @@ Minimal by design, matching the scale: server errors are logged via `console.err
 ### 11.4 Error handling
 
 - Domain errors (`UnauthorizedError`, `NotFoundError`, `ConflictError`, Zod's `ZodError`) are typed and mapped to HTTP status/shape at the boundary (`lib/api/http.ts`); anything else becomes a logged, opaque `500`.
-- No retry logic anywhere — there's nothing flaky enough in this system's own dependencies (one local Postgres) to warrant it. The one place retries matter is the skill client's reachability probe (`GET /api/health`), which decides API-vs-local-file mode per call rather than retrying.
+- No retry logic anywhere. The database is now a network hop to Neon (1.5–4.5s per API call observed from the dev machine), but no retries have been needed so far. The one place retries matter is the skill client's reachability probe (`GET /api/health`), which decides API-vs-local-file mode per call rather than retrying.
 
 ### 11.5 Validation
 
@@ -571,9 +570,11 @@ graph LR
     end
     subgraph trusted[Trusted — local machine]
         app[Next.js app]
-        db[(Postgres)]
     end
-    browser -.->|"⚠ trust boundary"| ngrok --> app --> db
+    subgraph provider[Managed provider]
+        db[(Postgres on Neon)]
+    end
+    browser -.->|"⚠ trust boundary"| ngrok --> app -->|TLS| db
 ```
 
 ### 12.2 Controls
@@ -592,11 +593,11 @@ graph LR
 
 | Class | Examples | Handling |
 |---|---|---|
-| Secret | `tokenHash`, `passwordHash`, `AuthSession.tokenHash` | Argon2-hashed, never logged, raw value shown exactly once at issuance |
+| Secret | `passwordHash`, `AuthSession.tokenHash` | Argon2-hashed, never logged; a raw session token is returned only once, in the login response |
 | Personal | Board content, notes | Stored in plaintext in Postgres — this is a personal task tracker, not handling third-party PII |
 | Public-ish | `handle` | Not secret, but not globally enumerable via the API either (§12.2) |
 
-**Accepted risk:** ngrok terminates TLS at its edge, so board content transits third-party infrastructure in plaintext at that hop — acceptable for a personal tool, worth revisiting if boards ever hold non-personal material. The host machine's owner can always read the database directly via `psql`; RLS constrains the application, not the host (§3.2).
+**Accepted risk:** ngrok terminates TLS at its edge, so board content transits third-party infrastructure in plaintext at that hop — acceptable for a personal tool, worth revisiting if boards ever hold non-personal material. Anyone holding the superuser `DATABASE_URL` (the operator, or Neon itself) can read the database directly; RLS constrains the application, not the database owner (§3.2).
 
 ---
 
@@ -604,7 +605,7 @@ graph LR
 
 No load testing has been done on this project — the numbers below are honest gaps, not omissions.
 
-**The one real, deliberate performance tradeoff:** `resolveUser` verifies a bearer token against *every* user's stored hash in a loop (`lib/auth/tenant.ts`), for both PATs and `AuthSession` tokens. This is O(n) in user count per authenticated request, and it's O(n) *on purpose* — argon2's hashes are salted, so there's no way to do an indexed `WHERE tokenHash = hash(token)` lookup without either using a fast (and weaker) hash for the lookup key or maintaining a second, unsalted index. At the project's actual scale (a small handful of users), verifying against each one is simply cheaper than the complexity of a workaround. **This stops being the right call if the user count grows meaningfully** — see §18.
+**The one real, deliberate performance tradeoff:** `resolveUser` verifies a bearer token against *every* live `AuthSession` hash in a loop (`lib/auth/tenant.ts`). Sessions are capped at 3 per user, so this is O(3n) in user count per authenticated request, and it's O(n) *on purpose* — argon2's hashes are salted, so there's no way to do an indexed `WHERE tokenHash = hash(token)` lookup without either using a fast (and weaker) hash for the lookup key or maintaining a second, unsalted index. At the project's actual scale (a small handful of users), verifying against each one is simply cheaper than the complexity of a workaround. **This stops being the right call if the user count grows meaningfully** — see §18.
 
 | Path | Budget | Measured |
 |---|---|---|
@@ -618,11 +619,11 @@ No load testing has been done on this project — the numbers below are honest g
 
 | # | Failure | Detection | Behaviour | Blast radius | Mitigation |
 |---|---|---|---|---|---|
-| F1 | Postgres unavailable | Query throws | Route handler's `500` path (`handleRouteError`) | Entire app — there's no fallback for the web client | Restart Postgres; Docker Compose's healthcheck gates the app container's startup |
+| F1 | Neon unreachable (outage, network, IPv6 routing) | Query throws or times out | Route handler's `500` path (`handleRouteError`) | Entire app — there's no fallback for the web client | Check Neon status and network; keep `NODE_OPTIONS=--no-network-family-autoselection` on the `web` container. The compose healthcheck only covers the unused local `db` |
 | F2 | ngrok tunnel down | Skill's `GET /api/health` probe fails | Skill client falls back to `.exec-board/` local files | Only the skill's reach into the app; the web app is unaffected if it's not going through the tunnel | Genuinely implemented fallback, not aspirational — this is the one real resilience feature in the system |
 | F3 | `Node.status` drifts from the event log (bug, manual DB edit) | Manual trigger, or suspicion | `POST /api/boards/:slug/rebuild` replays `STATUS_CHANGED` events and reports/fixes mismatches | One board at a time, on demand | Verified by deliberately corrupting a status and confirming the job catches and repairs it |
-| F4 | Malformed `tokenHash`/`passwordHash` on one row | Argon2 throws during verify | Caught per-row inside the resolution loop, treated as a non-match | That one user can't log in; every other user is unaffected | Explicit `try/catch` in `resolveUser`, not a blanket assumption of clean data |
-| F5 | Volume/disk loss, or `docker compose down -v` | None automated | Total data loss — no automatic backup, no offsite copy | Everything | `scripts/backup-db.sh` exists but isn't scheduled by default (§17) |
+| F4 | Malformed `AuthSession.tokenHash`/`passwordHash` on one row | Argon2 throws during verify | Caught per-row inside the resolution loop, treated as a non-match | That one session (or user's password login) fails; everything else is unaffected | Explicit `try/catch` in `resolveUser`, not a blanket assumption of clean data |
+| F5 | Data loss in Neon (bad migration, `npm run db:fresh`, accidental board `DELETE`) | None automated | No working backup of Neon data exists — `backup-db.sh` dumps the local container | Everything | Neon's own branch/point-in-time restore, if enabled on the plan; point `backup-db.sh` at Neon (§17 L2) |
 | F6 | `.env` malformed (a missing `=`, etc.) | Any script that `source`s it fails loudly (`command not found`) | Backup and role-sync scripts fail; the Next.js app itself is unaffected since Docker Compose reads `.env` through its own parser, not bash `source` | Backup/ops scripts only | Fix the line; no automated linting of `.env` currently |
 
 **Degradation ladder:** there isn't a formal one — this is a single-machine personal tool. In practice: Postgres down → app fully down for the web client, skill falls back to local files → operator restarts Postgres.
@@ -639,19 +640,20 @@ graph TB
         subgraph net[docker-compose network]
             web[web :3300<br/>Next.js]
             studio[studio :5555<br/>Prisma Studio]
-            db[(db :5432<br/>Postgres 17)]
+            db[(db :5432<br/>local Postgres 17 — unused by app)]
         end
         vol[(named volume: exec-board-db)]
     end
+    neon[(Neon<br/>exec_board)]
     dev((Developer's browser)) -->|localhost:3300| web
     dev -->|localhost:5555| studio
     skill((Claude skill, via ngrok)) -.->|only while tunneled| web
-    web --> db
+    web -->|APP_DATABASE_URL, IPv4| neon
     studio --> db
     db --- vol
 ```
 
-`web` and `studio` are published to the host on `3300`/`5555`; `db` is bound to `127.0.0.1` only. There is no reverse proxy — Next.js serves both the UI and the API directly.
+`web` and `studio` are published to the host on `3300`/`5555`; `db` is bound to `127.0.0.1` only. There is no reverse proxy — Next.js serves both the UI and the API directly. `web` still `depends_on` the local `db` healthcheck, so the container starts even though the app talks only to Neon; `studio`, `backup-db.sh`, and `setup-db-role.sh` still point at the local `db` (§17 L10).
 
 ### 15.2 Environments
 
@@ -659,7 +661,7 @@ There is exactly one real environment (local/personal), plus CI's fully ephemera
 
 | Env | Purpose | Data | Deploy trigger |
 |---|---|---|---|
-| local | The only place this app runs day-to-day | Real, on a named Docker volume | `make up` / `make dev` |
+| local | The only place this app runs day-to-day | Real, on Neon (shared with any other client using the same `.env`) | `make up` / `make dev` |
 | CI | Automated tests | Ephemeral Postgres service container, torn down after the run | Every PR and push to `main` |
 
 ### 15.3 Build & release
@@ -674,8 +676,9 @@ There is exactly one real environment (local/personal), plus CI's fully ephemera
 | Situation | Action |
 |---|---|
 | Restore DB | `pg_restore` from a `scripts/backup-db.sh` dump — restoration itself hasn't been rehearsed end-to-end (see §17) |
-| Rotate a PAT | `node scripts/issue-token.mts <handle>` — upserts, old token stops working immediately |
-| Set/rotate a password | `node scripts/set-password.mts <handle> <password>` |
+| Reset passwords to `.env` | `make reset` — applies every `USER<n>`/`PASSWORD<n>` pair via `set-password.mts --from-env` |
+| Set/rotate a password | `node --env-file=.env scripts/set-password.mts <handle> <password>` |
+| Full command list | [`docs/command.md`](./docs/command.md) |
 | Sync the RLS app role's password after a fresh migration | `bash scripts/setup-db-role.sh` (needed because the migration sets a placeholder password) |
 
 ---
@@ -695,14 +698,14 @@ There is exactly one real environment (local/personal), plus CI's fully ephemera
 
 ### ADR-002 — Bearer PAT instead of session cookies or OAuth (initially)
 
-- **Status:** Accepted, extended by ADR-003
+- **Status:** Superseded by ADR-007 (2026-09-13)
 - **Context:** Two known users, no public signup, and a non-browser client (the skill script) that needs to authenticate too.
 - **Decision:** One argon2-hashed personal access token per user, sent as `Authorization: Bearer`, issued via CLI.
 - **Consequences:** no cookie/CSRF machinery needed; but also no browser-native credential UX — a PAT has to be copy-pasted, which is what motivated ADR-003.
 
 ### ADR-003 — Password login mints a separate session token rather than rotating the PAT
 
-- **Status:** Accepted (full rationale: [`docs/dual-login-plan.md`](./docs/dual-login-plan.md))
+- **Status:** Superseded by ADR-007 (2026-09-13) (original rationale: [`docs/dual-login-plan.md`](./docs/dual-login-plan.md))
 - **Context:** Adding username+password login is friendlier than pasting a PAT, but a PAT's hash is one-way — a password login *cannot* hand back the original PAT.
 - **Alternatives considered:**
   | Option | Pros | Cons | Verdict |
@@ -710,6 +713,18 @@ There is exactly one real environment (local/personal), plus CI's fully ephemera
   | Rotate the PAT on password login, return the new one | No new table | Silently invalidates any PAT already in use elsewhere (e.g. the skill client) the moment someone logs in via browser | Rejected |
   | Separate `AuthSession` table, independent expiring token | Doesn't touch the PAT at all | One more table, one more code path in `resolveUser` | **Chosen** |
 - **Consequences / cost accepted:** `resolveUser` now checks two hash tables instead of one (still O(n) each, see §13); a password login replaces the user's prior session token rather than allowing multiple concurrent ones, to keep `AuthSession` bounded.
+
+### ADR-007 — Remove PATs; password sessions are the only bearer credential
+
+- **Status:** Accepted (2026-09-13)
+- **Context:** The login page was redesigned around handle + password (the "service account" the assistant also uses) with Google/GitHub OAuth planned as the everyday routes. Keeping PATs meant a second credential type to issue, rotate, and verify on every request, and a copy-paste secret in `.env`.
+- **Alternatives considered:**
+  | Option | Pros | Cons | Verdict |
+  |---|---|---|---|
+  | Keep PATs for the skill client, password for the browser | No client change | Two credential paths in `resolveUser`; long-lived non-expiring secret | Rejected |
+  | Skill client logs in with a password, one session per user | Single credential type | The skill's login would log the browser out, and vice versa | Rejected |
+  | Skill client logs in with a password, up to 3 sessions per user | Single credential type; browser and skill coexist; `resolveUser` cost stays bounded | Pruning logic on login; oldest device gets logged out on a 4th login | **Chosen** |
+- **Consequences / cost accepted:** migration `20260913120000_drop_user_token_hash` dropped `User.tokenHash` (existing PATs are unrecoverable); `scripts/issue-token.mts` deleted; `board-client.mts` caches its session token in `.exec-board/session-token` and re-logs in on 401; pruning uses a read + batched write rather than an interactive transaction, because Neon round trips (~1s) would hit the 5s interactive-transaction timeout.
 
 ### ADR-004 — `board-codec` as a single shared package, not two parsers
 
@@ -724,16 +739,29 @@ There is exactly one real environment (local/personal), plus CI's fully ephemera
 - **Context:** This is a personal tool for a couple of people, not a product with users to serve reliably.
 - **Decision:** Everything runs on one developer machine; ngrok exposes it to the Claude skill sandbox only while actively tunneled.
 - **Consequences / cost accepted:** no uptime guarantee, no staging environment, a dev-mode (not production-optimized) Docker image, and the ngrok free-tier hostname-rotation problem (§17). All accepted deliberately — see NG2/NG3 (§2.2).
+- **Amended by ADR-006:** the app still runs on one machine, but the database moved off it.
+
+### ADR-006 — Database on Neon instead of the local Docker volume
+
+- **Status:** Accepted (2026-08-21)
+- **Context:** The local Postgres volume was wiped by a Docker Desktop reset and three boards were lost with no usable backup (`docs/list.md`, "Neon attempt").
+- **Alternatives considered:**
+  | Option | Pros | Cons | Verdict |
+  |---|---|---|---|
+  | Keep local volume + schedule backups | No network hop, no third party | Backups were never successfully scheduled (§17 L2); one machine is still a single point of loss | Rejected |
+  | Neon managed Postgres | Data survives the dev machine; same RLS migrations apply unchanged | Every query is a network round trip; needed an IPv4-only workaround in Docker; board content now lives with a third party | **Chosen** |
+- **Consequences / cost accepted:** 1.5–4.5s API calls from the dev machine (Playwright timeouts raised to match); the local `db` service and the scripts that target it are now stale (§17 L10).
 
 ### Decision index
 
 | ID | Decision | Status |
 |---|---|---|
 | ADR-001 | Postgres RLS for tenancy | Accepted |
-| ADR-002 | Bearer PAT auth | Accepted, extended |
-| ADR-003 | Password login via separate session token | Accepted |
+| ADR-002 | Bearer PAT auth | Superseded by ADR-007 |
+| ADR-003 | Password login via separate session token | Superseded by ADR-007 |
 | ADR-004 | Single shared `board-codec` package | Accepted |
-| ADR-005 | Single-machine deployment, no hosting | Accepted |
+| ADR-005 | Single-machine deployment, no hosting | Accepted, amended by ADR-006 |
+| ADR-006 | Database on Neon | Accepted |
 
 ---
 
@@ -742,14 +770,17 @@ There is exactly one real environment (local/personal), plus CI's fully ephemera
 | # | Limitation | Impact | Why accepted | Exit condition |
 |---|---|---|---|---|
 | L1 | `resolveUser`'s O(n) argon2-verify loop, doubled by ADR-003's second table | Auth cost grows linearly with user count | Genuinely cheap at current scale (§13) | Move to an indexed lookup (e.g. an unsalted lookup key alongside the salted hash) if user count grows meaningfully |
-| L2 | No automated backup schedule | A disk failure or `docker compose down -v` is unrecoverable | Script exists (`scripts/backup-db.sh`); scheduling it hit a real macOS TCC/Full-Disk-Access wall (`~/Documents` is protected from non-interactive processes regardless of cron vs. launchd) that needs a one-time manual System Settings grant | Grant Full Disk Access to `/bin/bash`, then either cron or the already-installed `launchd` job (`~/Library/LaunchAgents/local.exec-board.backup-db.plist`) starts working |
+| L2 | No working backup of the real (Neon) data, and no schedule | A bad migration, `db:fresh`, or accidental board delete is unrecoverable unless Neon's own restore covers it | Script exists (`scripts/backup-db.sh`); scheduling it hit a real macOS TCC/Full-Disk-Access wall (`~/Documents` is protected from non-interactive processes regardless of cron vs. launchd) that needs a one-time manual System Settings grant | Grant Full Disk Access to `/bin/bash`, then either cron or the already-installed `launchd` job (`~/Library/LaunchAgents/local.exec-board.backup-db.plist`) starts working |
 | L3 | Backup restoration has never been rehearsed end-to-end | Unknown whether a restore actually works under pressure | Time | Do a real restore-to-a-scratch-database drill |
 | L4 | No structured logging/metrics/tracing | Debugging a production-like issue relies on `console.error` output only | Not a priority at 2 users, no ops team | Add before this ever needs to be debugged by someone who isn't the person who wrote it |
 | L5 | No rate limiting | An untrusted or compromised client could hammer the login endpoint | Users are hand-provisioned and trusted today | Needed before this ever faces untrusted traffic |
 | L6 | ngrok free-tier hostname rotates on restart | The skill's tunnel URL isn't stable across restarts | Zero-cost, zero-infra | Reserved domain, or a small DNS-indirection layer |
-| L7 | `Board.parallelAllowed` field exists in the schema, unused | Dead schema surface | A TRD-described escape hatch (allow two `doing` steps at once) that was never wired up, pending a decision to drop it | Either implement it or drop the column in a migration |
+| L7 | `board-codec` doesn't carry `quadrant`, `scheduledAt`, or `flagged` | Markdown export → re-import, and the skill's local-file fallback → `sync`, reset them | Grammar predates the planning views | Add tokens to the grammar + property tests |
 | L8 | Docker image is dev-mode only (`npm run dev` as the container `CMD`) | Not representative of a production build; slower cold start, no minification | No production environment exists to optimize for (ADR-005) | Add a production Dockerfile stage if that ever changes |
 | L9 | `.env` has no schema validation — a malformed line silently breaks whatever `source`s it, per-script, at run time | Confusing failures (`command not found` from an unrelated-looking line) | Small number of scripts, each easy to debug individually | A startup-time `.env` schema check (e.g. via zod) across all scripts that read it |
+| L10 | Local `db` container, `studio`, `backup-db.sh`, `setup-db-role.sh` still target local Postgres | Prisma Studio shows the wrong DB; backups and role sync don't touch Neon | Left over from the Neon switch (ADR-006) | Point them at `DATABASE_URL` or remove the local `db` service |
+| L11 | `DELETE /api/boards/:slug` is a hard delete | Breaks the "nothing is deleted, only reverted" property for whole boards | Deliberate UI feature | Soft-delete (`archivedAt` on `Board`) if that property matters |
+| L12 | ~~`e2e/login.spec.ts` hardcodes a real user's password~~ | — | — | Resolved 2026-09-13: e2e reads `USER1`/`PASSWORD1`/`USER2`/`PASSWORD2` from `.env` |
 
 ---
 
@@ -757,14 +788,14 @@ There is exactly one real environment (local/personal), plus CI's fully ephemera
 
 | Horizon | Change | Trigger | Prep already in place |
 |---|---|---|---|
-| Near | Schedule `backup-db.sh` (cron or the installed `launchd` job) | Any time — currently blocked only on a manual Full Disk Access grant | Script, `launchd` plist, and the one-line crontab entry are all already written (§17 L2) |
+| Near | Point `backup-db.sh` at Neon, then schedule it (cron or the installed `launchd` job) | Any time — scheduling is blocked on a manual Full Disk Access grant | Script, `launchd` plist, and the one-line crontab entry are all already written (§17 L2) |
 | Near | Reserved ngrok domain | Tunnel URL instability becomes annoying enough | None yet — small, isolated change (`scripts/start-tunnel.sh`) |
-| Mid | Indexed credential lookup instead of O(n) argon2-verify-all | User count grows past "a handful" | The two lookup loops (`findUserByPat`, `findUserBySessionToken` in `lib/auth/tenant.ts`) are already isolated behind `resolveUser`, so the swap is localized |
+| Mid | Indexed credential lookup instead of O(n) argon2-verify-all | User count grows past "a handful" | The single session lookup loop is isolated inside `resolveUser` (`lib/auth/tenant.ts`), so the swap is localized |
 | Mid | `.env` schema validation | The next time a malformed `.env` line causes a confusing failure (has already happened once) | None yet |
 | Far | Structured logging / metrics | This is ever debugged by someone other than its author, or genuinely goes into daily heavier use | None yet |
-| Far | Decide `Board.parallelAllowed`'s fate | Whenever someone actually wants concurrent `doing` steps, or decides they never will | Field already exists in the schema either way |
+| Near | Remove or repoint the local `db` service (§17 L10) | Next time Studio or a backup confuses the two databases | None yet |
 
-**Extension points:** a new board node attribute plugs in by extending `Node`'s schema + `patchNodeSchema` + the relevant `Event` payload shape — the service layer, event log, and next-action resolver don't need to change for most additive attributes (`due`/`prio`/`owner`/`quadrant` all followed this path already).
+**Extension points:** a new board node attribute plugs in by extending `Node`'s schema + `patchNodeSchema` + the relevant `Event` payload shape — the service layer, event log, and next-action resolver don't need to change for most additive attributes (`due`/`prio`/`owner`/`quadrant`/`scheduledAt`/`flagged` all followed this path already). The one thing they don't get for free is markdown round-tripping — that needs a `board-codec` grammar change (§17 L7).
 
 ---
 
@@ -775,9 +806,8 @@ There is exactly one real environment (local/personal), plus CI's fully ephemera
 | Node | One row in the three-layer tree — a `GROUP` (project/phase) or a `STEP` (task/subtask) |
 | Event | An append-only log entry recording one mutation; the source of truth `Node.status` is folded from |
 | Next action | The single most-actionable step, derived server-side (phase → priority → position), never stored |
-| PAT | Personal access token — one per user, argon2-hashed, shown once, doesn't expire |
 | **`Session`** (board) | A work session on a board (`Session` model) — drives report generation and the session counter. **Not the same thing as:** |
-| **`AuthSession`** | A password-login credential — an expiring bearer token, unrelated to work sessions above. The naming collision is real; disambiguate by full model name, not just "session" |
+| **`AuthSession`** | A password-login credential — an expiring bearer token (the only one; at most 3 per user), unrelated to work sessions above. The naming collision is real; disambiguate by full model name, not just "session" |
 | `board-codec` | The shared package owning the markdown ⇄ JSON grammar |
 | RLS | Row-level security — Postgres's per-row access policy, keyed here on a per-transaction `app.current_user_id` setting |
 | Revert | A compensating `Event` that undoes another's effect; nothing is ever deleted |
@@ -791,7 +821,9 @@ There is exactly one real environment (local/personal), plus CI's fully ephemera
 - [PRD](./docs/3%20Layers%20Rule%20PRD%20(1).md) / [TRD](./docs/3%20Layers%20Rule%20PRD%20(3).md) — the original spec this system implements
 - [`docs/list.md`](./docs/list.md) — phase-by-phase build history and the decisions made along the way (the primary source for most of this document)
 - [`docs/endpoint.md`](./docs/endpoint.md) — full API reference
-- [`docs/dual-login-plan.md`](./docs/dual-login-plan.md) — the design doc behind ADR-003
+- [`docs/dual-login-plan.md`](./docs/dual-login-plan.md) — the design doc behind ADR-003 (superseded by ADR-007)
+- [`docs/command.md`](./docs/command.md) — every operator/dev command
+- [`docs/diagrams/exec-board.architecture.html`](./docs/diagrams/exec-board.architecture.html) — interactive architecture diagram
 
 ### Changelog
 
@@ -801,6 +833,12 @@ There is exactly one real environment (local/personal), plus CI's fully ephemera
 | 2026-07-23 | 0.1.0 | Post-phase-8 addition: Next.js-in-Docker + Makefile |
 | 2026-08-12 | 0.1.0 | Dual login (PAT or username+password) — `AuthSession` model, `POST /api/auth/login`, tabbed login UI |
 | 2026-08-12 | 0.1.0 | This document restructured to the current template |
+| 2026-08-14 | 0.1.0 | Nocturne frontend rewrite; `Board.visibleFields`; `PATCH /api/boards/:slug` |
+| 2026-08-17 | 0.1.0 | Day and Quadrants views, node drawer, drag-to-reorder; `Node.quadrant` (re-added), `scheduledAt`, `flagged` |
+| 2026-08-21 | 0.1.0 | App switched to Neon (ADR-006); IPv4-only connect in the `web` container |
+| 2026-09-10 | 0.1.0 | Login + cross-tenant Playwright e2e |
+| 2026-09-13 | 0.1.0 | This document synced with the above; stale L7 (`parallelAllowed` — never in the schema) replaced |
+| 2026-09-13 | 0.1.0 | PATs removed (ADR-007): `User.tokenHash` dropped, up to 3 password sessions per user, skill client logs in by password; login page redesigned (Tubeboard, Google/GitHub buttons pending OAuth) |
 
 ---
 

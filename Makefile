@@ -3,11 +3,11 @@ COMPOSE_FILE = docker-compose.yml
 # Mandatory targets only — build/run the stack, watch it, tunnel it. No
 # secrets-file management (this project's secrets already live in .env,
 # read directly by prisma.config.ts / docker-compose.yml), no OAuth checks
-# (none of this app's auth is OAuth), no host-wide docker prune (docker
+# (OAuth credentials aren't checked here), no host-wide docker prune (docker
 # compose commands are already scoped to this project's containers/images —
 # a raw `docker system prune` is not).
 
-.PHONY: all build up down stop logs clean dev tunnel stop-tunnel re
+.PHONY: all build up down stop logs clean dev tunnel stop-tunnel re reset
 
 all: build up
 
@@ -42,10 +42,9 @@ dev: up
 	@docker compose -f $(COMPOSE_FILE) watch
 
 
-# reset hashed passwords for jaxz and jayci to the default value (the one in .env)
+# Reset every USER<n>/PASSWORD<n> account in .env to the password stored there.
 reset:
-	@node --env-file=.env scripts/issue-token.mts jaxz
-	@node --env-file=.env scripts/issue-token.mts jayci
+	@node --env-file=.env scripts/set-password.mts --from-env
 
 # Same as dev, but also attaches ngrok in the foreground so you watch live
 # tunnel traffic. Ctrl+C stops ngrok; watch and the containers keep running

@@ -1,16 +1,18 @@
 import "dotenv/config";
 import { test, expect } from "@playwright/test";
 
-const TOKEN = process.env.PAT_JAXZ;
-if (!TOKEN) throw new Error("PAT_JAXZ must be set in .env to run the e2e suite");
+const USER1 = process.env.USER1;
+const PASSWORD1 = process.env.PASSWORD1;
+if (!USER1 || !PASSWORD1) throw new Error("USER1/PASSWORD1 must be set in .env to run the e2e suite");
 
 const boardTitle = `Playwright run ${Date.now()}`;
 const boardSlug = boardTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
 test("full flow: login, create board, add step, change status, matrix, export", async ({ page }) => {
   await page.goto("/login");
-  await page.getByPlaceholder("ebpat_...").fill(TOKEN);
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByLabel("Handle").fill(USER1);
+  await page.getByLabel("Password").fill(PASSWORD1);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
 
   await expect(page).toHaveURL(/\/boards/);
 

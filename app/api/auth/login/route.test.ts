@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
-import { generateToken, hashToken } from "@/lib/auth/tokens";
+import { hashToken } from "@/lib/auth/tokens";
 import { POST } from "./route";
 
 let userId: string;
@@ -12,7 +12,6 @@ beforeAll(async () => {
   const user = await prisma.user.create({
     data: {
       handle: HANDLE,
-      tokenHash: await hashToken(generateToken()),
       passwordHash: await hashToken(PASSWORD),
     },
   });

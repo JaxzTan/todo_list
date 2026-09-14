@@ -12,7 +12,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const LOCAL_DIR = process.env.EXEC_BOARD_LOCAL_DIR ?? ".exec-board";
-const TOKEN = process.env.EXEC_BOARD_TOKEN;
+// The service account: the same handle/password login the web UI uses.
+// Falls back to the USER1/PASSWORD1 pair already in .env.
+const HANDLE = process.env.EXEC_BOARD_HANDLE ?? process.env.USER1;
+const PASSWORD = process.env.EXEC_BOARD_PASSWORD ?? process.env.PASSWORD1;
+const SESSION_FILE = path.join(LOCAL_DIR, "session-token");
 
 // §8 resolver indirection: if the base URL isn't set explicitly, fall back
 // to whatever scripts/start-tunnel.sh last wrote — this is what makes the
@@ -43,18 +47,39 @@ async function checkHealth(): Promise<boolean> {
   }
 }
 
-async function api(method: string, urlPath: string, body?: unknown): Promise<unknown> {
-  if (!TOKEN) {
-    throw new Error("EXEC_BOARD_TOKEN is not set — issue one with scripts/issue-token.mts");
+async function login(): Promise<string> {
+  if (!HANDLE || !PASSWORD) {
+    throw new Error("EXEC_BOARD_HANDLE/EXEC_BOARD_PASSWORD (or USER1/PASSWORD1) are not set in .env");
   }
-  const res = await fetch(`${BASE_URL}${urlPath}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${TOKEN}`,
-      ...(body !== undefined ? { "content-type": "application/json" } : {}),
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+  const res = await fetch(`${BASE_URL}/api/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ handle: HANDLE, password: PASSWORD }),
   });
+  if (!res.ok) throw new Error(`login as ${HANDLE} -> ${res.status}: check the password in .env`);
+  const { token } = (await res.json()) as { token: string };
+  await mkdir(LOCAL_DIR, { recursive: true });
+  await writeFile(SESSION_FILE, token, { encoding: "utf-8", mode: 0o600 });
+  return token;
+}
+
+// Reuses the cached session so every command doesn't mint a new one; only
+// logs in again when there's no cache or the server rejects it (expired or
+// pruned by a newer login).
+async function api(method: string, urlPath: string, body?: unknown): Promise<unknown> {
+  const send = (token: string) =>
+    fetch(`${BASE_URL}${urlPath}`, {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(body !== undefined ? { "content-type": "application/json" } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  const cached = await readFile(SESSION_FILE, "utf-8").then((t) => t.trim(), () => null);
+  let res = await send(cached ?? (await login()));
+  if (res.status === 401 && cached) res = await send(await login());
+
   const isMarkdown = res.headers.get("content-type")?.includes("text/markdown");
   const payload = isMarkdown ? await res.text() : await res.json();
   if (!res.ok) {

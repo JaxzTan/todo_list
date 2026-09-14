@@ -312,6 +312,23 @@ textarea.input { min-height: 90px; resize: vertical; }
 .login-panel {
   border-left: 1px solid var(--color-divider);
 }
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--color-divider);
+}
+.login-oauth { width: 44px; height: 44px; padding: 0; }
+.login-oauth:disabled { opacity: 0.8; }
+/* github.png is a black mark on transparent — flip it so it reads on dark. */
+[data-theme="dark"] .login-oauth-github { filter: invert(1); }
 @media (max-width: 860px) {
   .login-grid {
     grid-template-columns: 1fr;

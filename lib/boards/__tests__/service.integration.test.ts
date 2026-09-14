@@ -14,7 +14,7 @@ let userId: string;
 
 beforeAll(async () => {
   const user = await prisma.user.create({
-    data: { handle: `svc-test-${randomUUID()}`, tokenHash: `unused-${randomUUID()}` },
+    data: { handle: `svc-test-${randomUUID()}` },
   });
   userId = user.id;
 });

@@ -7,7 +7,6 @@ import type { BoardSummary } from "./types";
 
 interface AuthContextValue {
   status: "checking" | "authed" | "anon";
-  login: (token: string, persist?: boolean) => Promise<boolean>;
   loginWithPassword: (handle: string, password: string, persist?: boolean) => Promise<boolean>;
   logout: () => void;
 }
@@ -31,20 +30,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     resolved.then(setStatus);
   }, []);
 
-  const login = async (token: string, persist = true) => {
-    setToken(token, persist);
-    try {
-      await api.get<{ boards: BoardSummary[] }>("/api/boards");
-      setStatus("authed");
-      return true;
-    } catch (err) {
-      setToken(null);
-      setStatus("anon");
-      if (err instanceof ApiError && err.status === 401) return false;
-      throw err;
-    }
-  };
-
   const loginWithPassword = async (handle: string, password: string, persist = true) => {
     try {
       const { token } = await api.post<{ token: string }>("/api/auth/login", { handle, password });
@@ -65,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const value = useMemo(
-    () => ({ status, login, loginWithPassword, logout }),
+    () => ({ status, loginWithPassword, logout }),
     [status],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

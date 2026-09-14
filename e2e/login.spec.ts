@@ -1,40 +1,40 @@
 import "dotenv/config";
 import { test, expect, request } from "@playwright/test";
 
-const PAT_JAXZ = process.env.PAT_JAXZ;
-const PAT_JAYCI = process.env.PAT_JAYCI;
-if (!PAT_JAXZ) throw new Error("PAT_JAXZ must be set in .env to run the e2e suite");
-if (!PAT_JAYCI) throw new Error("PAT_JAYCI must be set in .env to run the e2e suite");
+const { USER1, PASSWORD1, USER2, PASSWORD2 } = process.env;
+if (!USER1 || !PASSWORD1 || !USER2 || !PASSWORD2) {
+  throw new Error("USER1/PASSWORD1 and USER2/PASSWORD2 must be set in .env to run the e2e suite");
+}
 
-test("login via App-layer PAT", async ({ page }) => {
-  await page.goto("/login");
-  await page.getByPlaceholder("ebpat_...").fill(PAT_JAXZ);
-  await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page).toHaveURL(/\/boards/);
-});
+async function sessionFor(baseURL: string | undefined, handle: string, password: string) {
+  const anon = await request.newContext({ baseURL });
+  const res = await anon.post("/api/auth/login", { data: { handle, password } });
+  expect(res.ok()).toBeTruthy();
+  const { token } = (await res.json()) as { token: string };
+  await anon.dispose();
+  return request.newContext({ baseURL, extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
+}
 
 test("login via handle + password", async ({ page }) => {
   await page.goto("/login");
-  await page.getByRole("button", { name: "Handle + password" }).click();
-  await page.getByLabel("Handle").fill("jaxz");
-  await page.getByLabel("Password").fill("Helloworld123.");
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByLabel("Handle").fill(USER1);
+  await page.getByLabel("Password").fill(PASSWORD1);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page).toHaveURL(/\/boards/);
 });
 
 test("wrong password is rejected", async ({ page }) => {
   await page.goto("/login");
-  await page.getByRole("button", { name: "Handle + password" }).click();
-  await page.getByLabel("Handle").fill("jaxz");
+  await page.getByLabel("Handle").fill(USER1);
   await page.getByLabel("Password").fill("wrong-password");
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByText("That handle/password combination wasn't accepted.")).toBeVisible();
   await expect(page).toHaveURL(/\/login/);
 });
 
-test("PAT is scoped to one tenant — cross-tenant reads 404", async ({ baseURL }) => {
-  const jaxz = await request.newContext({ baseURL, extraHTTPHeaders: { Authorization: `Bearer ${PAT_JAXZ}` } });
-  const jayci = await request.newContext({ baseURL, extraHTTPHeaders: { Authorization: `Bearer ${PAT_JAYCI}` } });
+test("a session is scoped to one tenant — cross-tenant reads 404", async ({ baseURL }) => {
+  const jaxz = await sessionFor(baseURL, USER1, PASSWORD1);
+  const jayci = await sessionFor(baseURL, USER2, PASSWORD2);
 
   const slug = `cross-tenant-${Date.now()}`;
   const created = await jayci.post("/api/boards", {
@@ -46,7 +46,7 @@ test("PAT is scoped to one tenant — cross-tenant reads 404", async ({ baseURL 
   const ownRead = await jayci.get(`/api/boards/${slug}`);
   expect(ownRead.status()).toBe(200);
 
-  // A different tenant's PAT gets 404, not 403 — existence isn't leaked.
+  // A different tenant's session gets 404, not 403 — existence isn't leaked.
   const crossRead = await jaxz.get(`/api/boards/${slug}`);
   expect(crossRead.status()).toBe(404);
 

@@ -1,6 +1,6 @@
 <div align="center">
 
-# Exec Board
+# Tubeboard
 
 **A persistent three-layer task board (project → task → subtask), driven from ordinary conversation with a Claude skill or a browser.**
 
@@ -34,7 +34,7 @@
 
 ## About
 
-Exec Board is a task tracker built around one idea: the plan and the actual status shouldn't be two things that drift apart. It's driven either from ordinary conversation — a Claude skill infers status changes (done, blocked, stuck, scope cuts) from what you say and writes them silently — or from a normal web UI, and both stay in sync because they operate on the same API and the same event log.
+Tubeboard is a task tracker built around one idea: the plan and the actual status shouldn't be two things that drift apart. It's driven either from ordinary conversation — a Claude skill infers status changes (done, blocked, stuck, scope cuts) from what you say and writes them silently — or from a normal web UI, and both stay in sync because they operate on the same API and the same event log.
 
 **Why it exists:** most task trackers require you to context-switch out of the conversation to update them, so they fall out of date. This one is written to from inside the conversation itself.
 
@@ -49,10 +49,10 @@ Exec Board is a task tracker built around one idea: the plan and the actual stat
 - **Append-only event log** (`Event`) is the source of truth; every mutation is reversible via a compensating revert, never a deletion
 - **Postgres row-level security**, keyed per-transaction, isolates each user's boards at the database layer — not just at the query layer
 - **Lossless markdown import/export** (`board-codec`) so a board is portable as a single `.md` file
-- **Two independent login methods** — a personal access token (PAT) or a username/password — either one is sufficient; both resolve to the same bearer-token auth on every route but `/api/health`
+- **Handle + password login** mints an expiring session token (up to 3 per user, so the browser and the Claude skill don't log each other out); every route but `/api/health` and `/api/auth/login` requires it as a bearer token. Google/GitHub OAuth buttons are on the login page, pending provider setup
 
 **Not included, by design:**
-- No self-serve signup — accounts, PATs, and passwords are all issued via operator-run CLI scripts (`scripts/issue-token.mts`, `scripts/set-password.mts`), not a public form
+- No self-serve signup — accounts and passwords are issued via an operator-run CLI script (`scripts/set-password.mts`), not a public form
 - No hosted deployment — this runs on a local machine behind an ngrok tunnel; see [Deployment](#deployment)
 
 ---
@@ -66,7 +66,7 @@ Exec Board is a task tracker built around one idea: the plan and the actual stat
 | Shared format | `board-codec` (TypeScript workspace package) | One grammar owner for markdown ⇄ JSON prevents skill/app drift |
 | Database | PostgreSQL 17 + Prisma 7 (`@prisma/adapter-pg`) | Relational fits steps/notes/blockers cleanly |
 | Isolation | Postgres row-level security (RLS) | Query-level `WHERE ownerId = ?` scoping will eventually be forgotten once |
-| Auth | Argon2-hashed PAT or password (`@node-rs/argon2`), bearer token | Two credential paths, one downstream auth check |
+| Auth | Argon2-hashed password + session token (`@node-rs/argon2`), bearer token | One credential path, one downstream auth check |
 | DB runtime | Docker Compose, named volume | Reproducible, disposable, no host Postgres install |
 | Exposure | ngrok tunnel | Zero-infra way to reach a local app from the Claude skill sandbox |
 | CI | GitHub Actions (`.github/workflows/ci.yml`) | Typecheck, unit tests, Playwright e2e, Prisma migration-drift check |
@@ -99,9 +99,9 @@ npm run db:up
 npm run db:migrate && npm run db:generate
 bash scripts/setup-db-role.sh
 
-# 4. Create your first user — either or both:
-node --env-file=.env scripts/issue-token.mts <handle>            # prints a PAT once — save it
-node --env-file=.env scripts/set-password.mts <handle> <password> # sets a password login instead/as well
+# 4. Create your first user
+node --env-file=.env scripts/set-password.mts <handle> <password>
+# or: make reset   — applies every USER<n>/PASSWORD<n> pair from .env
 
 # 5. Run
 npm run dev
@@ -135,9 +135,9 @@ make clean   # stop + remove volumes (destroys local data — see Troubleshootin
 | `DB_USER` / `DB_PASSWORD` / `DB_NAME` / `DB_PORT` / `DB_HOST` | **yes** | — | Local Postgres container credentials/connection, used by `docker-compose.yml` |
 | `APP_DB_PASSWORD` | **yes** | — | 🔒 Synced into the `exec_board_app` role by `scripts/setup-db-role.sh` |
 | `NGROK` | no | — | 🔒 ngrok auth token, used by `scripts/start-tunnel.sh` |
-| `PAT_<HANDLE>` (e.g. `PAT_JAXZ`) | no | — | 🔒 Issued personal access token per user, read by client scripts |
+| `USER<n>` / `PASSWORD<n>` | no | — | 🔒 Accounts for `make reset` and e2e; also ngrok basic auth. `USER1`/`PASSWORD1` is the skill client's default login |
 | `EXEC_BOARD_BASE_URL` | no | `http://localhost:3300` | Base URL the skill client calls; falls back to local file mode if unreachable |
-| `EXEC_BOARD_TOKEN` | no | — | 🔒 Bearer token the skill client sends as `Authorization: Bearer <token>` |
+| `EXEC_BOARD_HANDLE` / `EXEC_BOARD_PASSWORD` | no | `USER1` / `PASSWORD1` | 🔒 Account the skill client logs in as; its session token is cached in `.exec-board/session-token` |
 | `EXEC_BOARD_LOCAL_DIR` | no | `.exec-board/` | Local fallback directory the skill client writes to when the API is unreachable |
 | `EXEC_BOARD_BACKUP_DIR` | no | `backups/` | Where `scripts/backup-db.sh` writes `.dump` files |
 | `EXEC_BOARD_BACKUP_RETENTION_DAYS` | no | `14` | How long `scripts/backup-db.sh` keeps old backups |
@@ -148,23 +148,23 @@ make clean   # stop + remove volumes (destroys local data — see Troubleshootin
 
 ## Usage
 
-Every route but `GET /api/health` and `POST /api/auth/login` requires a bearer token — either a PAT or a session token from a password login:
-
-```bash
-curl http://localhost:3300/api/boards/my-project \
-  -H "Authorization: Bearer $EXEC_BOARD_TOKEN"
-```
-```json
-{"board":{"slug":"my-project","title":"..."},"nodes":[...],"nextAction":{"nodeId":"...","number":"1.2","text":"..."},"counts":{"done":3,"total":9}}
-```
-
-Logging in with a password instead of a PAT:
+Every route but `GET /api/health` and `POST /api/auth/login` requires a bearer session token. Log in first:
 
 ```bash
 curl -X POST http://localhost:3300/api/auth/login \
   -H "content-type: application/json" \
   -d '{"handle":"jaxz","password":"..."}'
-# → {"token":"ebsess_..."} — use exactly like a PAT above
+# → {"token":"ebsess_..."}
+```
+
+Then send it as a bearer token:
+
+```bash
+curl http://localhost:3300/api/boards/my-project \
+  -H "Authorization: Bearer $TOKEN"
+```
+```json
+{"board":{"slug":"my-project","title":"..."},"nodes":[...],"nextAction":{"nodeId":"...","number":"1.2","text":"..."},"counts":{"done":3,"total":9}}
 ```
 
 Full endpoint reference: [`docs/endpoint.md`](./docs/endpoint.md).
@@ -178,22 +178,22 @@ Full endpoint reference: [`docs/endpoint.md`](./docs/endpoint.md).
 ├── app/                 # Next.js App Router — pages + API route handlers
 │   ├── api/             #   REST endpoints (boards, nodes, events, auth)
 │   ├── boards/          #   Board list + board detail pages
-│   ├── login/           #   Login page (token or username/password tabs)
+│   ├── login/           #   Login page (handle + password, OAuth buttons)
 │   └── components/      #   Client components (BoardTree, MatrixView, dialogs)
 ├── lib/
-│   ├── auth/            # PAT + password verification, tenant resolution
+│   ├── auth/            # Password login, session tokens, tenant resolution
 │   ├── boards/          # Board service layer — mutations, events, next-action
 │   ├── client/           # Browser-side API client, auth/i18n/theme contexts
 │   ├── api/              # Shared route-handler helpers (error mapping, JSON parsing)
 │   └── db.ts              # Prisma client + RLS transaction wrapper
 ├── packages/board-codec/ # Sole owner of the markdown ⇄ JSON grammar
 ├── prisma/                # Schema + migrations
-├── scripts/                # Operator CLIs (issue-token, set-password, backup, tunnel)
+├── scripts/                # Operator CLIs (set-password, board-client, backup, tunnel)
 ├── e2e/                    # Playwright end-to-end tests
 ├── docs/
 │   ├── endpoint.md         # Full API reference
-│   ├── list.md              # Build history and decisions made along the way
-│   └── dual-login-plan.md   # Design doc for the PAT/password dual-login feature
+│   ├── list.md              # Build history and decisions made alo the way
+│   └── dual-login-plan.md   # Design doc for the former PAT/password dual login (PATs since removed)
 ├── .claude/skills/exec-board/ # The Claude skill definition (SKILL.md)
 ├── docker-compose.yml
 ├── Dockerfile
@@ -249,7 +249,7 @@ CI (`.github/workflows/ci.yml`) runs typecheck+lint, unit tests, Playwright e2e,
 
 ## API
 
-Base URL: `http://localhost:3300/api` · Auth: `Authorization: Bearer <PAT or session token>`
+Base URL: `http://localhost:3300/api` · Auth: `Authorization: Bearer <session token>`
 
 | Group | Purpose |
 |---|---|
@@ -320,7 +320,8 @@ If the schema has diverged locally and that doesn't resolve cleanly: `make clean
 - [x] Board API, three-layer tree, event log, next-action resolver (see `docs/list.md` for the full phase-by-phase history)
 - [x] Postgres RLS tenancy
 - [x] Markdown import/export via `board-codec`
-- [x] Dual login — PAT or username/password
+- [x] Handle + password login (PATs removed)
+- [ ] Google / GitHub OAuth
 - [ ] Scheduled offsite backups (script exists; scheduling needs a one-time macOS Full Disk Access grant — see Troubleshooting)
 - [ ] Reserved ngrok domain (free-tier hostname currently rotates on restart)
 - [ ] Decide the fate of `Board.parallelAllowed` (the "two `doing`" escape hatch — currently unused, pending a decision to drop it)

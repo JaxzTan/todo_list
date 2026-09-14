@@ -12,10 +12,10 @@ let userB: { id: string };
 
 beforeAll(async () => {
   userA = await prisma.user.create({
-    data: { handle: `rls-test-a-${randomUUID()}`, tokenHash: `unused-${randomUUID()}` },
+    data: { handle: `rls-test-a-${randomUUID()}` },
   });
   userB = await prisma.user.create({
-    data: { handle: `rls-test-b-${randomUUID()}`, tokenHash: `unused-${randomUUID()}` },
+    data: { handle: `rls-test-b-${randomUUID()}` },
   });
 });
 

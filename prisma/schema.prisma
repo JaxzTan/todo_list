@@ -60,7 +60,6 @@ enum EventType {
 model User {
   id           String   @id @default(cuid())
   handle       String   @unique
-  tokenHash    String   @unique
   passwordHash String?
   createdAt    DateTime @default(now())
 
@@ -68,10 +67,9 @@ model User {
   authSessions AuthSession[]
 }
 
-// A password login can't hand back the PAT (tokenHash is a one-way argon2
-// hash — TR-17), so it mints its own bearer credential instead. Kept
-// separate from User.tokenHash so logging in with a password never rotates
-// or invalidates the PAT that scripts/board-client.mts relies on.
+// Each password login mints its own expiring bearer credential, so the
+// browser and the assistant (scripts/board-client.mts) can hold separate
+// sessions for the same user without logging each other out.
 model AuthSession {
   id        String   @id @default(cuid())
   userId    String

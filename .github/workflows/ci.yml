@@ -78,12 +78,15 @@ jobs:
       - run: npx prisma migrate deploy
       - run: npx playwright install --with-deps chromium
       - run: npm run build
-      - name: Seed a test user and PAT
+      - name: Seed two test users with passwords
+        env:
+          USER1: e2e-ci-user-1
+          PASSWORD1: e2e-ci-password-1
+          USER2: e2e-ci-user-2
+          PASSWORD2: e2e-ci-password-2
         run: |
-          OUTPUT=$(node scripts/issue-token.mts e2e-ci-user)
-          echo "$OUTPUT"
-          TOKEN=$(echo "$OUTPUT" | tail -1)
-          echo "PAT_JAXZ=$TOKEN" >> "$GITHUB_ENV"
+          node scripts/set-password.mts --from-env
+          printf 'USER1=%s\nPASSWORD1=%s\nUSER2=%s\nPASSWORD2=%s\n' "$USER1" "$PASSWORD1" "$USER2" "$PASSWORD2" >> "$GITHUB_ENV"
       - name: Start the app
         run: |
           npm run start &

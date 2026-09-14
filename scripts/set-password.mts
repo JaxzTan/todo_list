@@ -1,33 +1,38 @@
 // Standalone CLI, run directly with Node's native TypeScript support:
-//   node scripts/set-password.mts <handle> <password>
-// Sets/rotates the given user's password (upserts the user if they don't
-// exist yet, same as issue-token.mts). No self-serve signup — this mirrors
-// how PATs are issued, an operator-run command rather than a public form.
+//   node --env-file=.env scripts/set-password.mts <handle> <password>
+//   node --env-file=.env scripts/set-password.mts --from-env
+// Sets/rotates a user's password, creating the user if they don't exist
+// yet. `--from-env` applies every USER<n>/PASSWORD<n> pair in the
+// environment (USER1/PASSWORD1, USER2/PASSWORD2, ...). No self-serve signup —
+// accounts are operator-issued. Uses relative imports rather than the "@/"
+// alias since this runs outside Next.js's bundler.
 import { hash } from "@node-rs/argon2";
 import { prisma } from "../lib/db.ts";
-import { generateToken, hashToken } from "../lib/auth/tokens.ts";
 
-const handle = process.argv[2];
-const password = process.argv[3];
-if (!handle || !password) {
-  console.error("Usage: node scripts/set-password.mts <handle> <password>");
+function pairsFromEnv(): [string, string][] {
+  const pairs: [string, string][] = [];
+  for (let n = 1; process.env[`USER${n}`] && process.env[`PASSWORD${n}`]; n++) {
+    pairs.push([process.env[`USER${n}`]!, process.env[`PASSWORD${n}`]!]);
+  }
+  return pairs;
+}
+
+const [arg1, arg2] = process.argv.slice(2);
+const pairs: [string, string][] = arg1 === "--from-env" ? pairsFromEnv() : arg1 && arg2 ? [[arg1, arg2]] : [];
+if (pairs.length === 0) {
+  console.error("Usage: node --env-file=.env scripts/set-password.mts <handle> <password> | --from-env");
   process.exit(1);
 }
 
-const passwordHash = await hash(password);
-
-const user = await prisma.user.findUnique({ where: { handle } });
-if (user) {
-  await prisma.user.update({ where: { handle }, data: { passwordHash } });
-  console.log(`Password set for existing user: ${handle} (${user.id})`);
-} else {
-  const token = generateToken();
-  const created = await prisma.user.create({
-    data: { handle, tokenHash: await hashToken(token), passwordHash },
+for (const [handle, password] of pairs) {
+  const passwordHash = await hash(password);
+  const existed = await prisma.user.findUnique({ where: { handle } });
+  const user = await prisma.user.upsert({
+    where: { handle },
+    create: { handle, passwordHash },
+    update: { passwordHash },
   });
-  console.log(`Created user: ${handle} (${created.id})`);
-  console.log(`Also issued a PAT (save this now — it will not be shown again):`);
-  console.log(token);
+  console.log(`${existed ? "Password set for existing user" : "Created user"}: ${user.handle} (${user.id})`);
 }
 
 await prisma.$disconnect();

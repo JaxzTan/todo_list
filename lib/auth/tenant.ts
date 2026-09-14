@@ -11,39 +11,15 @@ export function extractBearerToken(request: Request): string | null {
 
 /**
  * TR-14: a bearer token resolves to exactly one User before any tenant-
- * scoped query runs. Argon2 hashes are salted, so lookup can't be an
- * indexed `WHERE tokenHash = hash(token)` — with only two users (the
- * TRD's own design constraint), verifying against each stored hash is the
- * correct approach here, not a shortcut taken to avoid one.
+ * scoped query runs. The only bearer credential is a password-login
+ * AuthSession token (lib/auth/service.ts). Argon2 hashes are salted, so
+ * lookup can't be an indexed `WHERE tokenHash = hash(token)` — sessions are
+ * capped per user (MAX_SESSIONS_PER_USER), so verifying each live one is
+ * bounded.
  */
 export async function resolveUser(request: Request): Promise<User | null> {
   const token = extractBearerToken(request);
   if (!token) return null;
-  return (await findUserByPat(token)) ?? findUserBySessionToken(token);
-}
-
-async function findUserByPat(token: string): Promise<User | null> {
-  const users = await prisma.user.findMany();
-  for (const user of users) {
-    try {
-      if (await verifyToken(user.tokenHash, token)) {
-        return user;
-      }
-    } catch {
-      // A malformed tokenHash on one row (bad data, mid-rotation, etc.)
-      // must not break resolution for every other user — treat it as a
-      // non-match rather than letting argon2's parse error propagate.
-    }
-  }
-  return null;
-}
-
-/**
- * Password logins (lib/auth/service.ts) mint an AuthSession instead of a
- * PAT — checked here as a fallback so every route's `Authorization: Bearer`
- * check keeps working unchanged regardless of which credential produced it.
- */
-async function findUserBySessionToken(token: string): Promise<User | null> {
   const sessions = await prisma.authSession.findMany({
     where: { expiresAt: { gt: new Date() } },
     include: { user: true },
@@ -54,8 +30,9 @@ async function findUserBySessionToken(token: string): Promise<User | null> {
         return session.user;
       }
     } catch {
-      // Same rationale as findUserByPat: one malformed row can't break
-      // resolution for every other session.
+      // A malformed tokenHash on one row must not break resolution for
+      // every other session — treat it as a non-match rather than letting
+      // argon2's parse error propagate.
     }
   }
   return null;

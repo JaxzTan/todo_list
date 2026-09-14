@@ -3,7 +3,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "Exec Board",
+  title: "Tubeboard",
   description: "Solo-builder task board — projects, tasks, subtasks, one next action.",
   icons: { icon: "/logo.png" },
 };
